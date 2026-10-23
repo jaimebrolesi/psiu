@@ -1176,9 +1176,9 @@ struct PillView: View {
                         usage
                         Spacer(minLength: 0)
                         if store.greenDot || store.highContext {
-                            VStack(spacing: 4) {
-                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 8, height: 8) }
-                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 8, height: 8) }
+                            VStack(spacing: 3) {
+                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
+                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 5, height: 5) }
                             }
                         }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
