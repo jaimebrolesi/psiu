@@ -1125,7 +1125,11 @@ struct PillView: View {
                                 if store.contextoAlto { Circle().fill(Color(hex: 0xE24B4A)).frame(width: 5, height: 5) }
                             }
                         }
-                        RoboView(cor: store.cor, cansado: store.contextoAlto).frame(width: 29, height: 22)
+                        // Espiando, o robô encosta no fundo da faixa: a borda do corte coincide com a borda do notch.
+                        let espiando = store.cor == .azulFundo && !geo.aberto
+                        RoboView(cor: store.cor, cansado: store.contextoAlto, espiando: espiando)
+                            .frame(width: 29, height: 22)
+                            .frame(maxHeight: .infinity, alignment: espiando ? .bottom : .center)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: geo.h)
@@ -1196,11 +1200,13 @@ extension Color {
 struct RoboView: View {
     let cor: Cor
     var cansado = false
+    /// Segundo plano com o painel fechado: afundado no notch, só a metade de cima da cabeça aparece.
+    var espiando = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            Canvas { g, size in desenharRobo(&g, size, cor, cansado, t) }
+            Canvas { g, size in desenharRobo(&g, size, cor, cansado, t, espiando: espiando) }
         }
         .aspectRatio(60.0 / 46.0, contentMode: .fit)
     }
@@ -1261,10 +1267,12 @@ private func olhosCansados(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat
     g.fill(gota, with: .color(Color(hex: 0xB5D4F4, alpha: alfa)))
 }
 
-private func desenharRobo(_ g: inout GraphicsContext, _ size: CGSize, _ cor: Cor, _ cansado: Bool, _ t: Double) {
+private func desenharRobo(_ g: inout GraphicsContext, _ size: CGSize, _ cor: Cor, _ cansado: Bool, _ t: Double,
+                          espiando: Bool = false) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
     g.scaleBy(x: s, y: s)
+    g.clip(to: Path(CGRect(x: 0, y: 0, width: 60, height: 46)))
 
     // Cores da casca e do LED por estado.
     let shell: Color, led: Color
@@ -1288,6 +1296,11 @@ private func desenharRobo(_ g: inout GraphicsContext, _ size: CGSize, _ cor: Cor
         dy = p < 0.6 ? -5 * sin(.pi * p / 0.6) : 0
     case .cinza:
         dy = 1.5 * (1 - cos(2 * .pi * t / 3.2)) / 2
+    case .azulFundo where espiando:
+        let p = fase(t, 5)
+        // parado embaixo, sobe entre 38% e 48%, fica em cima até 68%, desce até 78%
+        let sobe: Double = p < 0.38 ? 0 : p < 0.48 ? (1 - cos(.pi * (p - 0.38) / 0.10)) / 2 : p < 0.68 ? 1 : p < 0.78 ? (1 + cos(.pi * (p - 0.68) / 0.10)) / 2 : 0
+        dy = 21 - 4.5 * sobe
     default:
         break
     }
@@ -1306,7 +1319,15 @@ private func desenharRobo(_ g: inout GraphicsContext, _ size: CGSize, _ cor: Cor
         g.fill(pastilha(14, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
         g.fill(pastilha(33, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
 
-    case .azulFundo:   // de olho no que roda em segundo plano: varre devagar e pisca
+    case .azulFundo where espiando:   // afundado no notch, espiando acima da borda
+        let dx = CGFloat(2.6 * sin(2 * .pi * t / 4))
+        if cansado { olhosCansados(&g, led, dx: dx, t); break }
+        let p = fase(t, 5)
+        let pisca: CGFloat = (p > 0.90 && p < 0.94) ? 0.1 : 1
+        g.fill(pastilha(14, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
+        g.fill(pastilha(33, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
+
+    case .azulFundo:   // painel aberto: cabeça inteira, varre devagar e pisca
         let dx = CGFloat(3 * sin(2 * .pi * t / 4))
         if cansado { olhosCansados(&g, led, dx: dx, t); break }
         let p = fase(t, 4)

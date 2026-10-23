@@ -30,7 +30,7 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 | | Estado | O que significa | Som |
 |---|---|---|---|
 | 1 | **Azul, olhos varrendo** | O Claude está trabalhando | nenhum |
-| 2 | **Azul, varrendo devagar e piscando** | O turno acabou, mas ainda há shells, monitores ou subagentes rodando em segundo plano | nenhum |
+| 2 | **Azul, espiando do notch** | O turno acabou, mas ainda há shells, monitores ou subagentes rodando em segundo plano: o Psiu se esconde no notch e de vez em quando dá uma espiada | nenhum |
 | 3 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta | na hora, e de novo a cada 2 minutos, por até 30 minutos |
 | 4 | **Verde, sorrindo** | Terminou | depois de 3 segundos, mais um lembrete após 3 minutos se você não olhou |
 | 5 | **Verde apagado, olhos semicerrados** | Parado, e você já viu | nenhum |

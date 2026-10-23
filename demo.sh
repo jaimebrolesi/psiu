@@ -65,7 +65,7 @@ st "{\"session_id\":\"demo-site\",\"workspace\":{\"project_dir\":\"/tmp/site\"},
 passo "Segunda sessão com contexto alto: robô cansado, ponto vermelho, e o ponto verde da api que você não viu." 7
 
 ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$fim_site"'","background_tasks":[{"type":"shell","status":"running"}]}'
-passo "Turno acabou, mas há um shell em segundo plano: azul lento." 6
+passo "Turno acabou, mas há um shell em segundo plano: o Psiu afunda no notch e espia." 6
 
 touch "$D/demo-painel"
 passo "O painel com as duas sessões, a previsão e o placar do dia." 7
