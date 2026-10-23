@@ -26,34 +26,33 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 ## What the robot shows
 
 <p align="center">
-  <img src="docs/gestures.svg" width="900" alt="The nine robot states">
+  <img src="docs/gestures.svg" width="900" alt="The ten robot states">
 </p>
 
 | | State | What it means | Sound |
 |---|---|---|---|
 | 1 | **Blue, eyes scanning** | Claude is working | none |
 | 2 | **Blue, peeking from the notch** | The turn ended, but shells, monitors or subagents are still running in the background: Psiu hides in the notch and peeks out now and then | none |
-| 3 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes; after 10 minutes Psiu panics |
-| 4 | **Red, eyes on fire** | Waiting for you for over 10 minutes | Sosumi every minute |
-| 5 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot when you finally answer) |
-| 6 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |
-| 7 | **Dim green, half-closed eyes** | Idle, and you have already seen it | none |
-| 8 | **Gray, "Z z" eyes** | No Claude Code session open | none |
+| 3 | **Purple, tired eyes** | A working session is above 80% of its context, close to being compacted | none |
+| 4 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes; after 10 minutes Psiu panics |
+| 5 | **Red, eyes on fire** | Waiting for you for over 10 minutes | Sosumi every minute |
+| 6 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot when you finally answer) |
+| 7 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |
+| 8 | **Green with a purple headband** | Finished, but the session was compacted along the way: time to clear it | same as done |
+| 9 | **Dim green, half-closed eyes** | Idle, and you have already seen it | none |
+| 10 | **Gray, "Z z" eyes** | No Claude Code session open | none |
 
 With several sessions open, the robot shows the most urgent one: yellow beats blue, blue beats green.
 
 The number next to the robot is how much of your 5-hour plan window you have used.
 
-## Two little dots
+## One little dot
 
 <p align="center">
-  <img src="docs/dots.svg" width="900" alt="Green and purple dots next to the robot">
+  <img src="docs/dots.svg" width="300" alt="Green dot next to the robot">
 </p>
 
-- **Green dot**: another session finished and you have not seen it, while the robot is busy showing something more urgent.
-- **Purple dot**: a session is above 80% of its context window, close to being compacted. When its eyes are free, the robot also looks tired, with a drop of sweat.
-
-Each dot only appears when it tells you something the robot is not already showing. And if Psiu burns out waiting for you, the panel keeps count: "Psius burnt today".
+**Green dot**: another session finished and you have not seen it, while the robot is busy showing something more urgent. It only appears when it tells you something the robot is not already showing. On a MacBook, the notch widens a little while the dot is lit, so the camera doesn't hide it.
 
 ## The panel
 
@@ -64,8 +63,9 @@ Click the notch and it stretches down into a panel. Click it again, or anywhere 
 </p>
 
 - **5-hour window and week**, with when they reset. Based on the last hour, Psiu tells you if your current pace runs out the 5-hour window before it resets.
-- **Every session**, with its state, a one-line summary of what it finished or what it is asking for, and its context usage. Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
-- **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days. A small, honest mirror.
+- **Every session**, with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
+- **Compacted sessions** get a "compacted Nx" tag, and once they finish, a tip to clear the session (`/clear`) before your next prompt.
+- **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days, and how many Psius burnt out waiting for you. A small, honest mirror.
 
 Right-click the robot for: **Show on** (pick which displays), **Mute sounds**, **Test sounds**, **Quit** and **Uninstall**.
 
@@ -101,7 +101,7 @@ Everything lives in a single file, `Psiu.swift`, with no dependencies.
 
 Psiu only uses official Claude Code extension points:
 
-- **Hooks** tell it when a session starts, receives a prompt, uses a tool, asks for permission, finishes or ends. Psiu writes each session's state to `~/.psiu/sessions`.
+- **Hooks** tell it when a session starts, receives a prompt, uses a tool, asks for permission, is compacted, finishes or ends. Psiu writes each session's state to `~/.psiu/sessions`.
 - The **status line** gives it each session's context usage and your plan limits.
 - The app reads those files twice a second and draws the robot.
 

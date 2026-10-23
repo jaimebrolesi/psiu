@@ -24,9 +24,11 @@ trap restore EXIT
 if [ "${PSIU_DEMO_LANG:-pt}" = en ]; then
   api_prompt="Update the install guide"; api_reply="Guide updated and tests passing."
   site_prompt="Review the checkout"; site_reply="Review done; the long test is still running."
+  site_done="Checkout reviewed and the long test passed."
 else
   api_prompt="Atualize o guia de instalação"; api_reply="Guia atualizado e testes passando."
   site_prompt="Revise o checkout"; site_reply="Revisão pronta; o teste longo segue rodando."
+  site_done="Checkout revisado e o teste longo passou."
 fi
 
 # Hooks run in the recording's language, like the Psiu record-demo.sh opens.
@@ -74,13 +76,17 @@ step "Done: green and smiling, with a sound." 6
 ev '{"session_id":"demo-site","hook_event_name":"SessionStart","cwd":"/tmp/site"}'
 ev '{"session_id":"demo-site","hook_event_name":"UserPromptSubmit","cwd":"/tmp/site","prompt":"'"$site_prompt"'"}'
 st "{\"session_id\":\"demo-site\",\"workspace\":{\"project_dir\":\"/tmp/site\"},\"context_window\":{\"used_percentage\":86},$limits}"
-step "Second session with high context: tired robot, purple dot, and the green dot for api that you haven't seen." 7
+step "Second session working above 80% of its context: Psiu turns purple and tired. The green dot is api, which you haven't seen." 5
 
 ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$site_reply"'","background_tasks":[{"type":"shell","status":"running"}]}'
-step "The turn ended, but a shell is running in the background: Psiu sinks into the notch and peeks." 6
+step "The turn ended, but a shell is running in the background: Psiu sinks into the notch and peeks, still purple." 6
+
+ev '{"session_id":"demo-site","hook_event_name":"PreCompact","trigger":"auto"}'
+ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$site_done"'","background_tasks":[]}'
+step "Finished after a compaction: green with a purple headband." 5
 
 touch "$D/demo-panel"
-step "The panel with both sessions, the forecast and today's scoreboard." 7
+step "The panel: both sessions, the \"compacted 1x\" tag and the tip to clear the session." 5
 rm -f "$D/demo-panel"
 sleep 2
 

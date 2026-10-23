@@ -134,6 +134,10 @@ func runHook() {
     switch event {
     case "SessionStart":
         newState = "idle"
+        // /clear starts the session over; the SessionStart after a compaction is not counted again.
+        if input["source"] as? String == "clear" { rec["compactacoes"] = 0 }
+    case "PreCompact":
+        rec["compactacoes"] = Int(num(rec["compactacoes"]) ?? 0) + 1
     case "UserPromptSubmit":
         newState = "running"
         let prompt = input["prompt"] as? String ?? ""
@@ -297,7 +301,7 @@ func removingPsiuHooks(_ groups: [[String: Any]]) -> [[String: Any]] {
 let hookEvents: [(String, String?)] = [
     ("SessionStart", nil), ("UserPromptSubmit", nil),
     ("PreToolUse", "*"), ("PostToolUse", "*"), ("PermissionRequest", "*"),
-    ("Notification", "*"), ("Stop", nil), ("SessionEnd", nil),
+    ("Notification", "*"), ("Stop", nil), ("SessionEnd", nil), ("PreCompact", "*"),
 ]
 
 func runInstall() {
@@ -367,6 +371,17 @@ func isPsiuConnected() -> Bool {
           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
           let cmd = (obj["statusLine"] as? [String: Any])?["command"] as? String else { return false }
     return cmd.contains(binPath)
+}
+
+/// Does settings.json lack any of Psiu's hook events for this executable (an install from an older version)?
+func isMissingHooks() -> Bool {
+    let hooks = readJSON(settingsURL)?["hooks"] as? [String: Any] ?? [:]
+    return hookEvents.contains { event, _ in
+        let groups = hooks[event] as? [[String: Any]] ?? []
+        return !groups.contains { group in
+            (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String ?? "").contains(binPath) }
+        }
+    }
 }
 
 var hasFarol: Bool {
@@ -530,6 +545,7 @@ struct Session: Identifiable, Equatable {
     var tty: String?
     var bundle: String?
     var termprog: String?
+    var compactions = 0
 }
 
 struct Scoreboard: Equatable {
@@ -588,7 +604,14 @@ final class Store: ObservableObject {
         if let d = readJSON(scoreboardFile)?["dias"] as? [String: [String: Double]] { days = d }
     }
 
-    var highContext: Bool { sessions.contains { ($0.ctx ?? 0) >= 80 } }
+    /// A working session (or one running background tasks) is above 80% of its context.
+    var heavyContext: Bool {
+        sessions.contains { ($0.state == .running || $0.state == .background) && ($0.ctx ?? 0) >= 80 }
+    }
+    /// A compacted session finished and you haven't seen it yet: the green Psiu wears a purple headband.
+    var bandaged: Bool {
+        sessions.contains { $0.state == .done && $0.compactions > 0 && !seen.contains(sessionKey($0)) }
+    }
     var greenDot: Bool {
         color != .green && sessions.contains { $0.state == .done && !seen.contains(sessionKey($0)) }
     }
@@ -634,7 +657,8 @@ final class Store: ObservableObject {
                            summary: r["resumo"] as? String,
                            tty: r["tty"] as? String,
                            bundle: r["bundle"] as? String,
-                           termprog: r["termprog"] as? String)
+                           termprog: r["termprog"] as? String,
+                           compactions: Int(num(r["compactacoes"]) ?? 0))
             if let m = readJSON(metricsURL) {
                 s.ctx = num(m["ctx"])
                 s.model = m["model"] as? String
@@ -921,7 +945,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        guard !isPsiuConnected() else { return }
+        if isPsiuConnected() {
+            // Installs from older versions lack newer hook events: add them quietly (the original backup is kept).
+            if isMissingHooks() { runInstall() }
+            return
+        }
         var text = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
                        "Psiu adds its hooks and status line to ~/.claude/settings.json, keeping a backup of the original, and opens when you log in to your Mac. Nothing leaves your computer.")
         if hasFarol { text += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
@@ -1041,7 +1069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// On screens with a physical notch, the closed notch widens while a dot is lit; elsewhere the dot is already visible.
     func dotsRoom(for geo: PanelGeometry) -> CGFloat {
-        geo.hasNotch && (store.greenDot || store.highContext) ? PanelGeometry.dotsRoomWidth : 0
+        geo.hasNotch && store.greenDot ? PanelGeometry.dotsRoomWidth : 0
     }
 
     func updateDotsRoom() {
@@ -1082,8 +1110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         closeAll()
         store.acknowledge()
         let lines = CGFloat(min(max(store.sessions.count, 1), 5))
+        let tips = CGFloat(store.sessions.prefix(5).filter { $0.state == .done && $0.compactions > 0 }.count)
         entry.geo.W = max(entry.geo.closedWidth, 340)
-        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + (store.today.burnt > 0 ? 18 : 0)
+        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + 16 * tips + (store.today.burnt > 0 ? 18 : 0)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
@@ -1215,16 +1244,11 @@ struct PillView: View {
                     HStack(spacing: 6) {
                         usage
                         Spacer(minLength: 0)
-                        if store.greenDot || store.highContext {
-                            VStack(spacing: 3) {
-                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
-                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 5, height: 5) }
-                            }
-                        }
+                        if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
-                        RobotView(color: store.color, tired: store.highContext, peeking: peeking,
-                                  revivingUntil: store.revivingUntil)
+                        RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
+                                  bandaged: store.bandaged, revivingUntil: store.revivingUntil)
                             .frame(width: geo.isOpen ? 42 : 29, height: geo.isOpen ? 32 : 22)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
@@ -1311,6 +1335,8 @@ struct RobotView: View {
     var tired = false
     /// Background state with the panel closed: sunk into the notch, only the top half of the head shows.
     var peeking = false
+    /// A compacted session finished: the green Psiu wears a purple headband.
+    var bandaged = false
     /// Until when a burnt Psiu is shaking off the soot (0.8 s).
     var revivingUntil: Date? = nil
 
@@ -1325,7 +1351,7 @@ struct RobotView: View {
             Canvas { g, size in
                 g.translateBy(x: margin, y: margin)
                 drawRobot(&g, CGSize(width: size.width - 2 * margin, height: size.height - 2 * margin),
-                          color, tired, t, peeking: peeking, revival: revival)
+                          color, tired, t, peeking: peeking, bandaged: bandaged, revival: revival)
             }
             .padding(-margin)
         }
@@ -1405,7 +1431,7 @@ private func visorShape() -> Path {
     return p
 }
 
-/// Eyes drooping with tiredness (high context), with a drop of sweat on the side.
+/// Eyes drooping with tiredness (heavy context, purple Psiu), with a drop of sweat on the side.
 private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ t: Double) {
     let droop = CGFloat(1 - 0.1 * (1 - cos(2 * .pi * t / 2.6)) / 2)
     for (cx, angle) in [(CGFloat(20.5), -7.0), (CGFloat(39.5), 7.0)] {
@@ -1423,11 +1449,11 @@ private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ 
     drop.addCurve(to: CGPoint(x: 53, y: 18.4 + y), control1: CGPoint(x: 57, y: 17 + y), control2: CGPoint(x: 55.2, y: 18.4 + y))
     drop.addCurve(to: CGPoint(x: 49, y: 14.8 + y), control1: CGPoint(x: 50.8, y: 18.4 + y), control2: CGPoint(x: 49, y: 17 + y))
     drop.addCurve(to: CGPoint(x: 53, y: 7 + y), control1: CGPoint(x: 49, y: 13 + y), control2: CGPoint(x: 50, y: 11 + y))
-    g.fill(drop, with: .color(Color(hex: 0xB5D4F4, alpha: fade)))
+    g.fill(drop, with: .color(Color(hex: 0xEEEDFE, alpha: fade)))
 }
 
 private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, _ tired: Bool, _ t: Double,
-                          peeking: Bool = false, revival: Double? = nil) {
+                          peeking: Bool = false, bandaged: Bool = false, revival: Double? = nil) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
     g.scaleBy(x: s, y: s)
@@ -1438,6 +1464,8 @@ private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: Robo
     switch color {
     case .red: shellHex = 0xF09595; shellAlpha = 1; led = Color(hex: 0xFFD27A)
     case .burnt: shellHex = 0x554A43; shellAlpha = 1; led = Color(hex: 0xD3D1C7)
+    case .blue where tired, .backgroundBlue where tired:   // heavy work: purple and tired
+        shellHex = 0xAFA9EC; shellAlpha = 1; led = Color(hex: 0xCECBF6)
     case .blue, .backgroundBlue: shellHex = 0x85B7EB; shellAlpha = 1; led = Color(hex: 0xA9D2FF)
     case .yellow: shellHex = 0xFAC775; shellAlpha = 1; led = Color(hex: 0xFFD27A)
     case .green: shellHex = 0xC0DD97; shellAlpha = 1; led = Color(hex: 0xC7EE8F)
@@ -1489,6 +1517,19 @@ private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: Robo
         g.stroke(soot, with: .color(Color(hex: 0x2C2622)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
     }
     g.fill(visorShape(), with: .color(Color(hex: 0x141414)))
+    if bandaged && color == .green {   // compacted along the way: a purple headband
+        var band = g
+        band.clip(to: headShape())
+        band.fill(Path(CGRect(x: 0, y: 4, width: 60, height: 11)), with: .color(Color(hex: 0xAFA9EC)))
+        var stripes = Path()
+        stripes.move(to: CGPoint(x: 0, y: 8)); stripes.addLine(to: CGPoint(x: 60, y: 11.5))
+        stripes.move(to: CGPoint(x: 0, y: 11.5)); stripes.addLine(to: CGPoint(x: 60, y: 8))
+        band.stroke(stripes, with: .color(Color(hex: 0x8F88D8)), lineWidth: 0.9)
+        var ends = Path()
+        ends.move(to: CGPoint(x: 52.5, y: 10.5)); ends.addQuadCurve(to: CGPoint(x: 59.5, y: 5.5), control: CGPoint(x: 57, y: 7))
+        ends.move(to: CGPoint(x: 52.5, y: 12)); ends.addQuadCurve(to: CGPoint(x: 59, y: 17.5), control: CGPoint(x: 57, y: 14))
+        g.stroke(ends, with: .color(Color(hex: 0xAFA9EC)), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
+    }
 
     // LED eyes.
     switch color {
@@ -1562,7 +1603,6 @@ private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: Robo
         g.stroke(arcs, with: .color(led), style: StrokeStyle(lineWidth: 4.6, lineCap: .round))
 
     case .dimGreen:   // half-closed, blinking slowly
-        if tired { tiredEyes(&g, led, dx: 0, t); break }
         let p = phase(t, 5)
         let blink: CGFloat = (p > 0.9 && p < 0.96) ? 0.12 : 1
         g.fill(pill(14, 21.6, 13, 8.6, 4, scaleY: blink), with: .color(led))
@@ -1697,17 +1737,31 @@ struct SessionView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(waited >= Sounds.panicAfter ? Color(hex: 0xE24B4A) : stateColor(s.state))
+            Circle().fill(waited >= Sounds.panicAfter ? Color(hex: 0xE24B4A)
+                          : isHeavy ? Color(hex: 0xAFA9EC) : stateColor(s.state))
                 .frame(width: 8, height: 8).padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(s.project).font(.system(size: 12, weight: .semibold))
                     Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
+                    if s.compactions > 0 {
+                        Text(tr("compactada \(s.compactions)x", "compacted \(s.compactions)x"))
+                            .font(.system(size: 10)).foregroundStyle(Color(hex: 0xCECBF6))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .overlay(Capsule().stroke(Color(hex: 0xAFA9EC, alpha: 0.55), lineWidth: 1))
+                            .fixedSize()   // the label gives way, not the tag
+                    }
                     Image(systemName: "arrow.up.forward").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
                 }
                 .lineLimit(1)
                 if let r = s.summary, !r.isEmpty {
                     Text(r).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if s.state == .done && s.compactions > 0 {
+                    Text(tr("Sugestão: limpe a sessão (/clear) antes do próximo pedido.",
+                            "Tip: clear the session (/clear) before your next prompt."))
+                        .font(.system(size: 10)).foregroundStyle(Color(hex: 0xCECBF6))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1723,6 +1777,9 @@ struct SessionView: View {
             }
         }
     }
+
+    /// Working (or running background tasks) above 80% of its context.
+    var isHeavy: Bool { (s.state == .running || s.state == .background) && (s.ctx ?? 0) >= 80 }
 
     /// How long this session has been waiting for you, or 0 if it isn't waiting.
     var waited: Double { s.state == .awaiting ? Date().timeIntervalSince1970 - s.since : 0 }
