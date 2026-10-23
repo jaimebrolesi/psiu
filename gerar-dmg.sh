@@ -71,11 +71,13 @@ cp -R "$app" build/dmg/
 ln -s /Applications build/dmg/Applications
 cp build/fundo.tiff build/dmg/.background/fundo.tiff
 
-# Se sobrou um volume "Psiu" montado de uma geração anterior, desmonta antes.
-if [ -d /Volumes/Psiu ]; then hdiutil detach /Volumes/Psiu -force >/dev/null 2>&1 || true; fi
+# Se sobrou um volume "Psiu" (ou "Psiu 1"...) montado de antes, desmonta: o Finder poderia arrumar o volume errado.
+for v in /Volumes/Psiu*; do [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1 || true; done
 
 hdiutil create -srcfolder build/dmg -volname Psiu -fs HFS+ -format UDRW -ov build/rw.dmg >/dev/null
-disco=$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/' | head -1 | awk '{print $1}')
+montagem=$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/.*/Volumes/' | head -1)
+disco=$(echo "$montagem" | awk '{print $1}')
+volume="/Volumes/${montagem#*/Volumes/}"
 
 # Arruma a janela: fundo, tamanho, ícones grandes e posições alinhadas à seta do fundo.
 # Na primeira vez, o macOS pede para o Terminal (ou o Claude Code) controlar o Finder: aceite.
@@ -106,10 +108,17 @@ then
   echo "Aviso: não consegui arrumar a janela do instalador (permissão para controlar o Finder?). O .dmg sai sem o fundo."
 fi
 
+# Ícone do volume montado (mesa, barra lateral e título da janela). Depois do Finder, que o apagaria.
+cp "$app/Contents/Resources/Psiu.icns" "$volume/.VolumeIcon.icns"
+SetFile -c icnC "$volume/.VolumeIcon.icns"
+SetFile -a C "$volume"
+
 sync
 hdiutil detach "$disco" >/dev/null
 rm -f Psiu.dmg
 hdiutil convert build/rw.dmg -format UDZO -o Psiu.dmg >/dev/null
+# Ícone do próprio arquivo .dmg. Fica nos atributos do arquivo: vale nesta máquina, mas não sobrevive ao download.
+osascript -l JavaScript -e 'ObjC.import("AppKit"); $.NSWorkspace.sharedWorkspace.setIconForFileOptions($.NSImage.alloc.initWithContentsOfFile("build/Psiu.app/Contents/Resources/Psiu.icns"), "Psiu.dmg", 0)' >/dev/null
 rm -rf build/dmg build/rw.dmg
 
 echo "Pronto: $(pwd)/Psiu.dmg"

@@ -449,6 +449,10 @@ struct FundoDMG: View {
                     .multilineTextAlignment(.center).lineSpacing(2)
             }
             .position(x: 320, y: 64)
+            // Sobre a imagem de fundo o Finder escreve os nomes dos ícones sempre em preto, até no modo escuro:
+            // uma etiqueta clara atrás de cada nome mantém a leitura.
+            etiqueta(58).position(x: Self.app.x, y: 265)
+            etiqueta(98).position(x: Self.pasta.x, y: 265)
             curva.stroke(Color(hex: 0x97C459),
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [0.1, 9]))
             ponta.stroke(Color(hex: 0x97C459),
@@ -459,6 +463,10 @@ struct FundoDMG: View {
                 .position(x: 320, y: 344)
         }
         .frame(width: 640, height: 400)
+    }
+
+    func etiqueta(_ largura: CGFloat) -> some View {
+        Capsule().fill(Color(hex: 0xE4E7EC)).frame(width: largura, height: 22)
     }
 
     private let inicio = CGPoint(x: 252, y: 192)
