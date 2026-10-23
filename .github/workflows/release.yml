@@ -1,0 +1,69 @@
+# Publishes a Psiu version from a tag (see RELEASING.md). Run it by hand with dry-run to do
+# everything except publishing.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, for example v1.6.0 (empty means the version in build-dmg.sh)
+        required: false
+        default: ''
+      dry-run:
+        description: Do everything except publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs['dry-run'] }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version and the release notes
+        run: |
+          version=$(grep -o '<key>CFBundleShortVersionString</key><string>[^<]*' build-dmg.sh | sed 's/.*<string>//')
+          if [ "$GITHUB_EVENT_NAME" = push ]; then tag="$GITHUB_REF_NAME"; else tag="${INPUT_TAG:-v$version}"; fi
+          echo "Tag $tag, version in build-dmg.sh $version, dry run: $DRY_RUN"
+          if [ "${tag#v}" != "$version" ]; then
+            echo "::error::The tag $tag doesn't match CFBundleShortVersionString $version in build-dmg.sh."; exit 1
+          fi
+          if [ ! -f ".github/release-notes-$tag.md" ]; then
+            echo "::error::Missing .github/release-notes-$tag.md."; exit 1
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Select the latest stable Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -1)
+          echo "Using $xcode"
+          sudo xcode-select -s "$xcode"
+          swiftc --version
+
+      - name: Build Psiu.app and Psiu.dmg
+        run: bash build-dmg.sh
+
+      - name: Verify the signature
+        run: codesign --verify --deep build/Psiu.app
+
+      - name: Test
+        run: bash test.sh
+
+      - name: Publish
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" Psiu.dmg --repo "$GITHUB_REPOSITORY" --title "Psiu $VERSION" --notes-file ".github/release-notes-$TAG.md"
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: echo "Dry run: built, verified and tested $TAG. Nothing was published."

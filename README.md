@@ -5,6 +5,10 @@
 <h1 align="center">Psiu</h1>
 
 <p align="center">
+  <a href="https://github.com/jaimebrolesi/psiu/actions/workflows/build.yml"><img src="https://github.com/jaimebrolesi/psiu/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+</p>
+
+<p align="center">
   A tiny robot in your Mac's notch that tells you when Claude Code needs you.<br>
   <a href="https://jaimebrolesi.github.io/psiu/">Website</a> · <a href="README.pt-BR.md">Leia em português</a>
 </p>
@@ -66,6 +70,8 @@ Click the notch and it stretches down into a panel. Click it again, or anywhere 
 - **Every session**, with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
 - **Compacted sessions** get a "compacted Nx" tag, and once they finish, a tip to clear the session (`/clear`) before your next prompt.
 - **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days, and how many Psius burnt out waiting for you. A small, honest mirror.
+
+The installed version shows at the bottom of the panel; click it to open that version's release page.
 
 Right-click the robot for: **Show on** (pick which displays), **Mute sounds**, **Test sounds**, **Quit** and **Uninstall**.
 

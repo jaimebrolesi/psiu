@@ -27,6 +27,8 @@ let prefsFile = baseDir.appendingPathComponent("prefs.json")
 let prevStatusFile = baseDir.appendingPathComponent("statusline-anterior.txt")
 /// The executable itself: /Applications/Psiu.app/Contents/MacOS/Psiu once installed.
 let binPath = Bundle.main.executablePath ?? CommandLine.arguments[0]
+/// Version of the installed app, or nil when running outside Psiu.app.
+let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
 
 /// Portuguese when the Mac's first language is Brazilian Portuguese; English otherwise.
 let isPortuguese: Bool = {
@@ -1112,7 +1114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let lines = CGFloat(min(max(store.sessions.count, 1), 5))
         let tips = CGFloat(store.sessions.prefix(5).filter { $0.state == .done && $0.compactions > 0 }.count)
         entry.geo.W = max(entry.geo.closedWidth, 340)
-        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + 16 * tips + (store.today.burnt > 0 ? 18 : 0)
+        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + 16 * tips + (store.today.burnt > 0 ? 18 : 0) + 16
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
@@ -1672,6 +1674,7 @@ struct DetailView: View {
             }
             Divider()
             ScoreboardView(today: store.today, weekWaiting: store.weekWaiting)
+            VersionView()
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1803,6 +1806,22 @@ struct SessionView: View {
             return tr("· precisa de você, \(ago)", isJustNow ? "· needs you, just now" : "· needs you for \(minutes) min")
         case .done: return tr("· terminou, \(ago)", isJustNow ? "· finished just now" : "· finished \(minutes) min ago")
         case .idle: return tr("· parado, \(ago)", isJustNow ? "· idle, just now" : "· idle for \(minutes) min")
+        }
+    }
+}
+
+/// The installed version, at the bottom of the panel. A click asks macOS to open its release page;
+/// Psiu itself never goes online.
+struct VersionView: View {
+    var body: some View {
+        HStack {
+            Spacer()
+            Text("Psiu " + (appVersion ?? "dev"))
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .onTapGesture {
+                    guard let v = appVersion, let url = URL(string: "https://github.com/jaimebrolesi/psiu/releases/tag/v\(v)") else { return }
+                    NSWorkspace.shared.open(url)
+                }
         }
     }
 }

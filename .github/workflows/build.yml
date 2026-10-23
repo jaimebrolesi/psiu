@@ -1,0 +1,47 @@
+# Builds and tests Psiu on a GitHub Mac for every change on main and every pull request.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the latest stable Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -1)
+          echo "Using $xcode"
+          sudo xcode-select -s "$xcode"
+          swiftc --version
+
+      - name: Build Psiu.app and Psiu.dmg
+        run: bash build-dmg.sh
+
+      - name: Verify the signature
+        run: codesign --verify --deep build/Psiu.app
+
+      - name: Test
+        run: bash test.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Psiu
+          retention-days: 14
+          path: |
+            Psiu.dmg
+            build/icon-1024.png
+            build/background.png
+            build/background@2x.png

@@ -5,6 +5,10 @@
 <h1 align="center">Psiu</h1>
 
 <p align="center">
+  <a href="https://github.com/jaimebrolesi/psiu/actions/workflows/build.yml"><img src="https://github.com/jaimebrolesi/psiu/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+</p>
+
+<p align="center">
   Um robozinho no notch do seu Mac que avisa quando o Claude Code precisa de você.<br>
   <a href="https://jaimebrolesi.github.io/psiu/pt-br.html">Site</a> · <a href="README.md">Read in English</a>
 </p>
@@ -64,6 +68,8 @@ Clique no notch e ele se estica para baixo, virando um painel. Clique de novo, o
 - **Cada sessão,** com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app.
 - **Sessões compactadas** ganham a etiqueta "compactada Nx" e, quando terminam, a sugestão de limpar a sessão (`/clear`) antes do próximo pedido.
 - **Hoje:** quanto tempo os agentes trabalharam, quanto tempo esperaram por você e sua resposta média, mais o acumulado de 7 dias e quantos Psius queimaram esperando você. Um espelho pequeno e honesto.
+
+A versão instalada aparece no rodapé do painel; clique nela para abrir a página daquela versão.
 
 No clique direito do robô: **Mostrar em** (escolhe as telas), **Silenciar sons**, **Testar sons**, **Sair** e **Desinstalar**.
 
