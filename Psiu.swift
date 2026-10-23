@@ -831,6 +831,11 @@ final class PanelGeometry: ObservableObject {
     @Published var W: CGFloat = 330   // open
     @Published var H: CGFloat = 260
     var screenFrame: NSRect = .zero
+
+    /// Open, the top strip grows to this height so Psiu can be bigger.
+    static let openStripHeight: CGFloat = 44
+    /// Height of the top strip, closed or open.
+    var stripHeight: CGFloat { isOpen ? max(h, Self.openStripHeight) : h }
 }
 
 @MainActor
@@ -1038,7 +1043,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.acknowledge()
         let lines = CGFloat(min(max(store.sessions.count, 1), 5))
         entry.geo.W = max(entry.geo.w, 340)
-        entry.geo.H = entry.geo.h + 156 + 112 + 70 * lines + (store.today.burnt > 0 ? 18 : 0)
+        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + (store.today.burnt > 0 ? 18 : 0)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
@@ -1171,20 +1176,20 @@ struct PillView: View {
                         usage
                         Spacer(minLength: 0)
                         if store.greenDot || store.highContext {
-                            VStack(spacing: 3) {
-                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
-                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 5, height: 5) }
+                            VStack(spacing: 4) {
+                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 8, height: 8) }
+                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 8, height: 8) }
                             }
                         }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.highContext, peeking: peeking,
                                   revivingUntil: store.revivingUntil)
-                            .frame(width: 29, height: 22)
+                            .frame(width: geo.isOpen ? 42 : 29, height: geo.isOpen ? 32 : 22)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
                     .padding(.horizontal, 10)
-                    .frame(height: geo.h)
+                    .frame(height: geo.stripHeight)
                     .contentShape(Rectangle())
                     .onTapGesture { app.toggleDetail(displayID) }
 
