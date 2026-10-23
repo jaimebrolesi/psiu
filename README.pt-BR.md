@@ -24,17 +24,19 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 ## O que o robô mostra
 
 <p align="center">
-  <img src="docs/gestures.svg" width="900" alt="Os seis estados do robô">
+  <img src="docs/gestures.svg" width="900" alt="Os oito estados do robô">
 </p>
 
 | | Estado | O que significa | Som |
 |---|---|---|---|
 | 1 | **Azul, olhos varrendo** | O Claude está trabalhando | nenhum |
 | 2 | **Azul, espiando do notch** | O turno acabou, mas ainda há shells, monitores ou subagentes rodando em segundo plano: o Psiu se esconde no notch e de vez em quando dá uma espiada | nenhum |
-| 3 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta | na hora, e de novo a cada 2 minutos, por até 30 minutos |
-| 4 | **Verde, sorrindo** | Terminou | depois de 3 segundos, mais um lembrete após 3 minutos se você não olhou |
-| 5 | **Verde apagado, olhos semicerrados** | Parado, e você já viu | nenhum |
-| 6 | **Cinza, olhos em "Z z"** | Nenhuma sessão do Claude Code aberta | nenhum |
+| 3 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta | na hora, e a cada 2 minutos; depois de 10 minutos o Psiu entra em desespero |
+| 4 | **Vermelho, olhos em chamas** | Esperando você há mais de 10 minutos | Sosumi a cada minuto |
+| 5 | **Queimado, olhos em X e fumaça** | Esperando há mais de 30 minutos | nenhum (ele sacode a fuligem quando você finalmente responde) |
+| 6 | **Verde, sorrindo** | Terminou | depois de 3 segundos, mais um lembrete após 3 minutos se você não olhou |
+| 7 | **Verde apagado, olhos semicerrados** | Parado, e você já viu | nenhum |
+| 8 | **Cinza, olhos em "Z z"** | Nenhuma sessão do Claude Code aberta | nenhum |
 
 Com várias sessões abertas, o robô mostra a mais urgente: amarelo ganha do azul, que ganha do verde.
 
@@ -43,13 +45,13 @@ O número ao lado do robô é quanto você já usou da janela de 5 horas do seu 
 ## Dois pontinhos
 
 <p align="center">
-  <img src="docs/dots.svg" width="900" alt="Pontinhos verde e vermelho ao lado do robô">
+  <img src="docs/dots.svg" width="900" alt="Pontinhos verde e roxo ao lado do robô">
 </p>
 
 - **Ponto verde:** outra sessão terminou e você não viu, enquanto o robô está mostrando algo mais urgente.
-- **Ponto vermelho:** alguma sessão passou de 80% do contexto e está perto de ser compactada. Quando os olhos estão livres, o robô também fica com cara de cansado, com uma gota de suor.
+- **Ponto roxo:** alguma sessão passou de 80% do contexto e está perto de ser compactada. Quando os olhos estão livres, o robô também fica com cara de cansado, com uma gota de suor.
 
-Cada ponto só aparece quando diz algo que o robô ainda não está mostrando.
+Cada ponto só aparece quando diz algo que o robô ainda não está mostrando. E, se o Psiu queimar esperando você, o painel conta: "Psius queimados hoje".
 
 ## O painel
 

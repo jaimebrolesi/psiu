@@ -515,7 +515,7 @@ func renderDMGBackground(_ folder: String) {
 
 enum SessionState: String { case idle, running, background, awaiting, done }
 
-enum RobotColor { case yellow, blue, backgroundBlue, green, dimGreen, gray }
+enum RobotColor { case red, burnt, yellow, blue, backgroundBlue, green, dimGreen, gray }
 
 struct Session: Identifiable, Equatable {
     let id: String
@@ -537,6 +537,7 @@ struct Scoreboard: Equatable {
     var waiting: Double = 0     // seconds with some session waiting for you
     var replyCount: Int = 0     // how many times you replied
     var replyTime: Double = 0   // sum of the times until you replied
+    var burnt: Int = 0          // waiting episodes that crossed 30 min
 }
 
 let scoreboardFile = baseDir.appendingPathComponent("placar.json")
@@ -553,6 +554,10 @@ enum Sounds {
     static let permissionReminderInterval: TimeInterval = 120   // repeats while it waits for you
     static let maxPermissionReminders = 15                      // at most 30 min of sounds
     static let finishedReminderInterval: TimeInterval = 180     // one extra reminder if you didn't come back
+    static let panic = "Sosumi"
+    static let panicInterval: TimeInterval = 60                 // repeats while Psiu panics
+    static let panicAfter: TimeInterval = 600                   // waiting for you for 10 min: panic
+    static let burnAfter: TimeInterval = 1800                   // 30 min: burnt, and silent
 }
 
 @MainActor
@@ -565,6 +570,9 @@ final class Store: ObservableObject {
     @Published var weekWaiting: Double = 0
     @Published var forecast: Double?          // when the 5-hour window runs out, if that happens before it resets
     @Published var forecastHeadroom = false   // the current pace fits in the window
+    @Published var panicIDs = Set<String>()   // sessions waiting for you for 10 to 30 min
+    @Published var burntIDs = Set<String>()   // sessions waiting for 30 min or more
+    @Published var revivingUntil: Date?       // a burnt Psiu shaking off the soot
 
     private var days: [String: [String: Double]] = [:]
     private var lastTick: Date?
@@ -573,6 +581,8 @@ final class Store: ObservableObject {
     private var samples: [(t: Double, p: Double)] = []
     private var currentResets: Double = 0
     private var lastLimitsRead: Double = 0
+    private var belowBurn = Set<String>()     // waiting episodes seen before 30 min, so each burn counts once
+    private var panicked = Set<String>()      // waiting episodes that already played the panic sound
 
     init() {
         if let d = readJSON(scoreboardFile)?["dias"] as? [String: [String: Double]] { days = d }
@@ -592,6 +602,8 @@ final class Store: ObservableObject {
     func sessionKey(_ s: Session) -> String { "\(s.id)|\(s.state.rawValue)|\(Int(s.since))" }
 
     var color: RobotColor {
+        if !panicIDs.isEmpty { return .red }
+        if !burntIDs.isEmpty { return .burnt }
         if sessions.contains(where: { $0.state == .awaiting }) { return .yellow }
         if sessions.contains(where: { $0.state == .running }) { return .blue }
         if sessions.contains(where: { $0.state == .background }) { return .backgroundBlue }
@@ -632,6 +644,7 @@ final class Store: ObservableObject {
         }
         list.sort { $0.since > $1.since }
         if list != sessions { sessions = list }
+        updateWaitLevels(now)
 
         if let l = readJSON(limitsFile) {
             let c = usageWindow(l["five_hour"], now), w = usageWindow(l["seven_day"], now)
@@ -642,6 +655,23 @@ final class Store: ObservableObject {
         updateScoreboard(Date())
         playSoundsIfNeeded()
         firstLoad = false
+    }
+
+    // MARK: Panic and burnt Psiu
+
+    private func updateWaitLevels(_ now: Double) {
+        var panic = Set<String>(), burnt = Set<String>()
+        for s in sessions where s.state == .awaiting {
+            let waited = now - s.since
+            if waited >= Sounds.burnAfter { burnt.insert(s.id) } else if waited >= Sounds.panicAfter { panic.insert(s.id) }
+        }
+        // A burnt Psiu whose session stopped waiting shakes off the soot before taking the new state.
+        let revived = burntIDs.subtracting(burnt).contains { id in
+            sessions.contains { $0.id == id && $0.state != .awaiting }
+        }
+        if revived { revivingUntil = Date().addingTimeInterval(0.8) }
+        if panic != panicIDs { panicIDs = panic }
+        if burnt != burntIDs { burntIDs = burnt }
     }
 
     // MARK: 5-hour window forecast
@@ -693,12 +723,19 @@ final class Store: ObservableObject {
             d["tResp", default: 0] += max(0, now.timeIntervalSince1970 - since)
         }
         previouslyAwaiting = awaitingNow
+        // Each waiting episode that crosses 30 min burns one Psiu, counted once.
+        for s in sessions where s.state == .awaiting {
+            let k = sessionKey(s)
+            if now.timeIntervalSince1970 - s.since < Sounds.burnAfter { belowBurn.insert(k) }
+            else if belowBurn.remove(k) != nil { d["queim", default: 0] += 1 }
+        }
+        belowBurn.formIntersection(awaitingNow.keys)
         days[day] = d
 
         let last7Days = (0..<7).map { dayKey(now.addingTimeInterval(-Double($0) * 86400)) }
         days = days.filter { last7Days.contains($0.key) }
         let h = Scoreboard(working: (d["trab"] ?? 0).rounded(), waiting: (d["esp"] ?? 0).rounded(),
-                       replyCount: Int(d["nResp"] ?? 0), replyTime: d["tResp"] ?? 0)
+                       replyCount: Int(d["nResp"] ?? 0), replyTime: d["tResp"] ?? 0, burnt: Int(d["queim"] ?? 0))
         if h != today { today = h }
         let weekWait = last7Days.reduce(0) { $0 + (days[$1]?["esp"] ?? 0) }.rounded()
         if weekWait != weekWaiting { weekWaiting = weekWait }
@@ -727,13 +764,19 @@ final class Store: ObservableObject {
             if firstLoad {
                 lastSound[k] = now
                 reminders[k] = 99
+                if s.state == .awaiting && now.timeIntervalSince1970 - s.since >= Sounds.panicAfter { panicked.insert(k) }
                 continue
             }
             if seen.contains(k) { continue }
             let n = reminders[k] ?? 0
             switch s.state {
             case .awaiting:
-                if isNew { playSound(Sounds.permission, k) }
+                let waited = now.timeIntervalSince1970 - s.since
+                if waited >= Sounds.burnAfter { break }   // burnt: silent
+                if waited >= Sounds.panicAfter {
+                    if panicked.insert(k).inserted { playSound(Sounds.panic, k) }
+                    else if let u = lastSound[k], now.timeIntervalSince(u) > Sounds.panicInterval { playSound(Sounds.panic, k) }
+                } else if isNew { playSound(Sounds.permission, k) }
                 else if let u = lastSound[k], now.timeIntervalSince(u) > Sounds.permissionReminderInterval,
                         n < Sounds.maxPermissionReminders {
                     playSound(Sounds.permission, k); reminders[k] = n + 1
@@ -751,6 +794,7 @@ final class Store: ObservableObject {
         }
         known.formIntersection(active)
         seen.formIntersection(active)
+        panicked.formIntersection(active)
         lastSound = lastSound.filter { active.contains($0.key) }
         reminders = reminders.filter { active.contains($0.key) }
     }
@@ -994,7 +1038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.acknowledge()
         let lines = CGFloat(min(max(store.sessions.count, 1), 5))
         entry.geo.W = max(entry.geo.w, 340)
-        entry.geo.H = entry.geo.h + 156 + 112 + 70 * lines
+        entry.geo.H = entry.geo.h + 156 + 112 + 70 * lines + (store.today.burnt > 0 ? 18 : 0)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
@@ -1087,6 +1131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 func swiftUIColor(_ c: RobotColor) -> Color {
     switch c {
+    case .red: return Color(hex: 0xE24B4A)
+    case .burnt: return Color(hex: 0x554A43)
     case .yellow: return Color(red: 1.0, green: 0.80, blue: 0.10)
     case .blue, .backgroundBlue: return Color(red: 0.25, green: 0.60, blue: 1.0)
     case .green: return Color(red: 0.20, green: 0.85, blue: 0.40)
@@ -1127,12 +1173,13 @@ struct PillView: View {
                         if store.greenDot || store.highContext {
                             VStack(spacing: 3) {
                                 if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
-                                if store.highContext { Circle().fill(Color(hex: 0xE24B4A)).frame(width: 5, height: 5) }
+                                if store.highContext { Circle().fill(Color(hex: 0xAFA9EC)).frame(width: 5, height: 5) }
                             }
                         }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
-                        RobotView(color: store.color, tired: store.highContext, peeking: peeking)
+                        RobotView(color: store.color, tired: store.highContext, peeking: peeking,
+                                  revivingUntil: store.revivingUntil)
                             .frame(width: 29, height: 22)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
@@ -1154,6 +1201,18 @@ struct PillView: View {
             }
             .frame(width: geo.isOpen ? geo.W : geo.w, height: geo.isOpen ? geo.H : geo.h)
             .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
+            .overlay {
+                if store.color == .red {
+                    // Panic: a red edge pulses around the notch.
+                    TimelineView(.animation) { ctx in
+                        let t = ctx.date.timeIntervalSinceReferenceDate
+                        UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius)
+                            .strokeBorder(Color(hex: 0xE24B4A), lineWidth: 1.75)
+                            .opacity(0.625 + 0.375 * sin(2 * .pi * t / 1.2))
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
             .contextMenu {
                 Menu(tr("Mostrar em", "Show on")) {
                     ForEach(app.screenNames, id: \.self) { name in
@@ -1207,14 +1266,64 @@ struct RobotView: View {
     var tired = false
     /// Background state with the panel closed: sunk into the notch, only the top half of the head shows.
     var peeking = false
+    /// Until when a burnt Psiu is shaking off the soot (0.8 s).
+    var revivingUntil: Date? = nil
+
+    /// Room around the grid, so smoke and soot can leave the head without being cut.
+    private let margin: CGFloat = 8
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            Canvas { g, size in drawRobot(&g, size, color, tired, t, peeking: peeking) }
+            let left = revivingUntil.map { $0.timeIntervalSince(ctx.date) } ?? 0
+            let revival = left > 0 && left <= 0.8 ? 1 - left / 0.8 : nil
+            Canvas { g, size in
+                g.translateBy(x: margin, y: margin)
+                drawRobot(&g, CGSize(width: size.width - 2 * margin, height: size.height - 2 * margin),
+                          color, tired, t, peeking: peeking, revival: revival)
+            }
+            .padding(-margin)
         }
         .aspectRatio(60.0 / 46.0, contentMode: .fit)
     }
+}
+
+/// Builds a path from SVG path data with absolute M, C and Z commands.
+private func svgPath(_ d: String) -> Path {
+    let tokens = d.map { $0.isLetter ? " \($0) " : String($0) }.joined().split(separator: " ")
+    var p = Path(), i = 0, command: Character = "M"
+    func number() -> CGFloat { defer { i += 1 }; return CGFloat(Double(tokens[i]) ?? 0) }
+    func point() -> CGPoint { let x = number(); return CGPoint(x: x, y: number()) }
+    while i < tokens.count {
+        if let c = tokens[i].first, c.isLetter {
+            command = c; i += 1
+            if command == "Z" { p.closeSubpath() }
+            continue
+        }
+        switch command {
+        case "M": p.move(to: point())
+        case "C":
+            let c1 = point(), c2 = point()
+            p.addCurve(to: point(), control1: c1, control2: c2)
+        default: i += 1
+        }
+    }
+    return p
+}
+
+/// The eyes on fire of the panic state, on the 60 x 46 grid.
+private enum Flames {
+    static let left = svgPath("M20.5 12 C24.5 17.5 28.2 21 28.2 26.8 C28.2 31.2 24.8 34 20.5 34 C16.2 34 12.8 31.2 12.8 26.8 C12.8 23 15 20.8 16.4 18.4 C17 21 18 22.4 19.2 22.8 C18.8 19.2 19.3 15.6 20.5 12 Z")
+    static let leftCore = svgPath("M20.5 20 C22.8 23.2 24.8 25.2 24.8 28.4 C24.8 31.2 22.8 33 20.5 33 C18.2 33 16.2 31.2 16.2 28.4 C16.2 25.8 18.2 23.4 20.5 20 Z")
+    static let right = svgPath("M39.5 12 C40.7 15.6 41.2 19.2 40.8 22.8 C42 22.4 43 21 43.6 18.4 C45 20.8 47.2 23 47.2 26.8 C47.2 31.2 43.8 34 39.5 34 C35.2 34 31.8 31.2 31.8 26.8 C31.8 21 35.5 17.5 39.5 12 Z")
+    static let rightCore = svgPath("M39.5 20 C41.8 23.4 43.8 25.8 43.8 28.4 C43.8 31.2 41.8 33 39.5 33 C37.2 33 35.2 31.2 35.2 28.4 C35.2 25.2 37.2 23.2 39.5 20 Z")
+}
+
+/// Mixes two 0xRRGGBB colors, from a (f = 0) to b (f = 1).
+private func mix(_ a: UInt32, _ b: UInt32, _ f: Double, alpha: Double) -> Color {
+    func channel(_ c: UInt32, _ shift: UInt32) -> Double { Double((c >> shift) & 0xFF) / 255 }
+    func blend(_ shift: UInt32) -> Double { channel(a, shift) + (channel(b, shift) - channel(a, shift)) * f }
+    return Color(.sRGB, red: blend(16), green: blend(8), blue: blend(0), opacity: alpha)
 }
 
 private func phase(_ t: Double, _ period: Double) -> Double {
@@ -1273,25 +1382,36 @@ private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ 
 }
 
 private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, _ tired: Bool, _ t: Double,
-                          peeking: Bool = false) {
+                          peeking: Bool = false, revival: Double? = nil) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
     g.scaleBy(x: s, y: s)
-    g.clip(to: Path(CGRect(x: 0, y: 0, width: 60, height: 46)))
+    if peeking { g.clip(to: Path(CGRect(x: 0, y: 0, width: 60, height: 46))) }
 
     // Shell and LED colors per state.
-    let shell: Color, led: Color
+    let shellHex: UInt32, shellAlpha: Double, led: Color
     switch color {
-    case .blue, .backgroundBlue: shell = Color(hex: 0x85B7EB); led = Color(hex: 0xA9D2FF)
-    case .yellow: shell = Color(hex: 0xFAC775); led = Color(hex: 0xFFD27A)
-    case .green: shell = Color(hex: 0xC0DD97); led = Color(hex: 0xC7EE8F)
-    case .dimGreen: shell = Color(hex: 0xC0DD97, alpha: 0.5); led = Color(hex: 0xC7EE8F, alpha: 0.5)
-    case .gray: shell = Color(hex: 0x888780); led = Color(hex: 0xD3D1C7)
+    case .red: shellHex = 0xF09595; shellAlpha = 1; led = Color(hex: 0xFFD27A)
+    case .burnt: shellHex = 0x554A43; shellAlpha = 1; led = Color(hex: 0xD3D1C7)
+    case .blue, .backgroundBlue: shellHex = 0x85B7EB; shellAlpha = 1; led = Color(hex: 0xA9D2FF)
+    case .yellow: shellHex = 0xFAC775; shellAlpha = 1; led = Color(hex: 0xFFD27A)
+    case .green: shellHex = 0xC0DD97; shellAlpha = 1; led = Color(hex: 0xC7EE8F)
+    case .dimGreen: shellHex = 0xC0DD97; shellAlpha = 0.5; led = Color(hex: 0xC7EE8F, alpha: 0.5)
+    case .gray: shellHex = 0x888780; shellAlpha = 1; led = Color(hex: 0xD3D1C7)
     }
+    // Reviving, the shell goes from burnt to the new state's color.
+    let shell = revival.map { mix(0x554A43, shellHex, $0, alpha: 1 + (shellAlpha - 1) * $0) }
+        ?? Color(hex: shellHex, alpha: shellAlpha)
 
     // Head movement.
-    var dy = 0.0, tilt = 0.0
+    var dy = 0.0, tilt = 0.0, sway = 0.0
     switch color {
+    case .red:
+        let w = 2 * .pi * t / 0.32
+        sway = 1.4 * sin(w)
+        tilt = 4 * sin(w + .pi / 2)
+    case .burnt:
+        tilt = -5 + sin(2 * .pi * t / 3)
     case .yellow:
         let w = sin(2 * .pi * t / 0.9)
         tilt = 5 * w
@@ -1309,15 +1429,56 @@ private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: Robo
     default:
         break
     }
-    g.translateBy(x: 30, y: 25 + dy)
+    // Reviving: shakes off the soot at 10 Hz, settling down to still.
+    if let p = revival { tilt += 6 * sin(2 * .pi * 10 * t) * (1 - p) }
+    g.translateBy(x: 30 + sway, y: 25 + dy)
     g.rotate(by: .degrees(tilt))
     g.translateBy(x: -30, y: -25)
 
     g.fill(headShape(), with: .color(shell))
+    if color == .burnt && s > 1 {   // soot streaks, only at large sizes
+        var soot = Path()
+        for (a, b) in [((9.5, 13.5), (13.5, 9.8)), ((33.0, 7.2), (38.5, 8.4)), ((50.8, 31.0), (53.4, 27.0))] {
+            soot.move(to: CGPoint(x: a.0, y: a.1)); soot.addLine(to: CGPoint(x: b.0, y: b.1))
+        }
+        g.stroke(soot, with: .color(Color(hex: 0x2C2622)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
+    }
     g.fill(visorShape(), with: .color(Color(hex: 0x141414)))
 
     // LED eyes.
     switch color {
+    case .red:   // panic: eyes on fire, flickering from the base
+        for (flame, core, cx, offset) in [(Flames.left, Flames.leftCore, 20.5, 0.0), (Flames.right, Flames.rightCore, 39.5, Double.pi)] {
+            let w = 2 * .pi * t / 0.42 + offset
+            var gg = g
+            gg.translateBy(x: cx, y: 34)
+            gg.concatenate(CGAffineTransform(a: 1, b: 0, c: tan(5 * cos(w) * .pi / 180), d: 1.02 + 0.10 * sin(w), tx: 0, ty: 0))
+            gg.translateBy(x: -cx, y: -34)
+            gg.fill(flame, with: .color(Color(hex: 0xF0703C)))
+            gg.translateBy(x: cx, y: 34)
+            gg.scaleBy(x: 1, y: 0.975 + 0.175 * sin(2 * .pi * t / 0.3 + offset))
+            gg.translateBy(x: -cx, y: -34)
+            gg.fill(core, with: .color(led))
+        }
+
+    case .burnt:   // burnt out: X eyes, embers and smoke
+        var eyes = Path()
+        for (a, b) in [((15.5, 20.0), (25.5, 30.0)), ((25.5, 20.0), (15.5, 30.0)), ((34.5, 20.0), (44.5, 30.0)), ((44.5, 20.0), (34.5, 30.0))] {
+            eyes.move(to: CGPoint(x: a.0, y: a.1)); eyes.addLine(to: CGPoint(x: b.0, y: b.1))
+        }
+        g.stroke(eyes, with: .color(led), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        for (x, y, offset) in [(9.0, 17.0, 0.0), (50.0, 35.0, Double.pi)] {
+            let glow = 0.625 + 0.375 * sin(2 * .pi * t / 1.4 + offset)
+            g.fill(Path(ellipseIn: CGRect(x: x - 2, y: y - 2, width: 4, height: 4)), with: .color(Color(hex: 0xF0703C, alpha: glow)))
+        }
+        for (i, x0) in [24.0, 38.0, 31.0].enumerated() {
+            let p = phase(t + Double(i) * 2.6 / 3, 2.6)
+            let r = 3 * (0.6 + 0.8 * p)
+            let c = CGPoint(x: x0 + 3 * p, y: 8 - 16 * p)
+            g.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+                   with: .color(Color(hex: 0x8E8C86, alpha: 0.7 * sin(.pi * p))))
+        }
+
     case .blue:   // focused, scanning from side to side
         let dx = CGFloat(3 * sin(2 * .pi * t / 1.3))
         if tired { tiredEyes(&g, led, dx: dx, t); break }
@@ -1372,6 +1533,15 @@ private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: Robo
                  style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
         g.stroke(zp, with: .color(led.opacity(0.675 - 0.325 * wave)),
                  style: StrokeStyle(lineWidth: 3.6, lineCap: .round, lineJoin: .round))
+    }
+
+    // Reviving: four bits of soot fly off the shell and fade.
+    if let p = revival {
+        for (x, y, dx, dy) in [(12.0, 12.0, -1.0, -1.0), (48.0, 12.0, 1.0, -1.0), (10.0, 36.0, -1.0, 1.0), (50.0, 36.0, 1.0, 1.0)] {
+            let c = CGPoint(x: x + dx * 12 * p, y: y + dy * 12 * p)
+            g.fill(Path(ellipseIn: CGRect(x: c.x - 1.8, y: c.y - 1.8, width: 3.6, height: 3.6)),
+                   with: .color(Color(hex: 0x5A4E46, alpha: 1 - p)))
+        }
     }
 }
 
@@ -1482,7 +1652,8 @@ struct SessionView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(stateColor(s.state)).frame(width: 8, height: 8).padding(.top, 4)
+            Circle().fill(waited >= Sounds.panicAfter ? Color(hex: 0xE24B4A) : stateColor(s.state))
+                .frame(width: 8, height: 8).padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(s.project).font(.system(size: 12, weight: .semibold))
@@ -1500,13 +1671,16 @@ struct SessionView: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(tr("contexto", "context") + " \(Int(c.rounded()))%")
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(c >= 80 ? Color(hex: 0xE24B4A) : (c >= 70 ? Color.orange : Color.secondary))
+                        .foregroundStyle(c >= 80 ? Color(hex: 0xAFA9EC) : (c >= 70 ? Color.orange : Color.secondary))
                     ProgressView(value: min(c, 100), total: 100)
-                        .tint(c >= 80 ? Color(hex: 0xE24B4A) : usageColor(c)).frame(width: 60)
+                        .tint(c >= 80 ? Color(hex: 0xAFA9EC) : usageColor(c)).frame(width: 60)
                 }
             }
         }
     }
+
+    /// How long this session has been waiting for you, or 0 if it isn't waiting.
+    var waited: Double { s.state == .awaiting ? Date().timeIntervalSince1970 - s.since : 0 }
 
     var label: String {
         let now = Date().timeIntervalSince1970
@@ -1520,7 +1694,11 @@ struct SessionView: View {
                 ? tr("· trabalhando, sem sinal há \(silence) min", "· working, no signal for \(silence) min")
                 : tr("· trabalhando, \(ago)", isJustNow ? "· working, just now" : "· working for \(minutes) min")
         case .background: return tr("· em segundo plano: ", "· in background: ") + (s.bg ?? tr("tarefas", "tasks"))
-        case .awaiting: return tr("· precisa de você, \(ago)", isJustNow ? "· needs you, just now" : "· needs you for \(minutes) min")
+        case .awaiting:
+            if waited >= Sounds.burnAfter {
+                return tr("· queimou esperando você, há \(minutes) min", "· burnt out waiting for you, \(minutes) min")
+            }
+            return tr("· precisa de você, \(ago)", isJustNow ? "· needs you, just now" : "· needs you for \(minutes) min")
         case .done: return tr("· terminou, \(ago)", isJustNow ? "· finished just now" : "· finished \(minutes) min ago")
         case .idle: return tr("· parado, \(ago)", isJustNow ? "· idle, just now" : "· idle for \(minutes) min")
         }
@@ -1554,6 +1732,10 @@ struct ScoreboardView: View {
                 }
                 .frame(height: 5)
                 .clipShape(Capsule())
+            }
+            if today.burnt > 0 {
+                Text(tr("Psius queimados hoje: \(today.burnt)", "Psius burnt today: \(today.burnt)"))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
     }

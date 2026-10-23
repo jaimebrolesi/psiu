@@ -26,17 +26,19 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 ## What the robot shows
 
 <p align="center">
-  <img src="docs/gestures.svg" width="900" alt="The six robot states">
+  <img src="docs/gestures.svg" width="900" alt="The eight robot states">
 </p>
 
 | | State | What it means | Sound |
 |---|---|---|---|
 | 1 | **Blue, eyes scanning** | Claude is working | none |
 | 2 | **Blue, peeking from the notch** | The turn ended, but shells, monitors or subagents are still running in the background: Psiu hides in the notch and peeks out now and then | none |
-| 3 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes for up to 30 minutes |
-| 4 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |
-| 5 | **Dim green, half-closed eyes** | Idle, and you have already seen it | none |
-| 6 | **Gray, "Z z" eyes** | No Claude Code session open | none |
+| 3 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes; after 10 minutes Psiu panics |
+| 4 | **Red, eyes on fire** | Waiting for you for over 10 minutes | Sosumi every minute |
+| 5 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot when you finally answer) |
+| 6 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |
+| 7 | **Dim green, half-closed eyes** | Idle, and you have already seen it | none |
+| 8 | **Gray, "Z z" eyes** | No Claude Code session open | none |
 
 With several sessions open, the robot shows the most urgent one: yellow beats blue, blue beats green.
 
@@ -45,13 +47,13 @@ The number next to the robot is how much of your 5-hour plan window you have use
 ## Two little dots
 
 <p align="center">
-  <img src="docs/dots.svg" width="900" alt="Green and red dots next to the robot">
+  <img src="docs/dots.svg" width="900" alt="Green and purple dots next to the robot">
 </p>
 
 - **Green dot**: another session finished and you have not seen it, while the robot is busy showing something more urgent.
-- **Red dot**: a session is above 80% of its context window, close to being compacted. When its eyes are free, the robot also looks tired, with a drop of sweat.
+- **Purple dot**: a session is above 80% of its context window, close to being compacted. When its eyes are free, the robot also looks tired, with a drop of sweat.
 
-Each dot only appears when it tells you something the robot is not already showing.
+Each dot only appears when it tells you something the robot is not already showing. And if Psiu burns out waiting for you, the panel keeps count: "Psius burnt today".
 
 ## The panel
 

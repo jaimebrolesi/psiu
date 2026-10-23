@@ -1,7 +1,7 @@
 #!/bin/bash
 # Simulates two made-up Claude Code sessions to record the Psiu demo.
 # Uses invented names (api, site). Saves and restores your plan limits at the end.
-# Today's scoreboard gains about a minute from the demo.
+# Run on its own, it adds about a minute to today's scoreboard; record-demo.sh runs it in an isolated home.
 set -euo pipefail
 
 P="/Applications/Psiu.app/Contents/MacOS/Psiu"
@@ -20,7 +20,7 @@ restore() {
 }
 trap restore EXIT
 
-# Made-up texts in the recording's language (record-demo.sh passes PSIU_DEMO_LANG).
+# Made-up texts in the recording's language (record-demo.sh passes PSIU_DEMO_LANG and PSIU_DEMO_LANGUAGES).
 if [ "${PSIU_DEMO_LANG:-pt}" = en ]; then
   api_prompt="Update the install guide"; api_reply="Guide updated and tests passing."
   site_prompt="Review the checkout"; site_reply="Review done; the long test is still running."
@@ -29,9 +29,16 @@ else
   site_prompt="Revise o checkout"; site_reply="Revisão pronta; o teste longo segue rodando."
 fi
 
-ev() { printf '%s' "$1" | "$P" hook; }
-st() { printf '%s' "$1" | "$P" statusline >/dev/null; }
+# Hooks run in the recording's language, like the Psiu record-demo.sh opens.
+lang_args=(-AppleLanguages "(${PSIU_DEMO_LANGUAGES:-pt-BR})")
+ev() { printf '%s' "$1" | "$P" hook "${lang_args[@]}"; }
+st() { printf '%s' "$1" | "$P" statusline "${lang_args[@]}" >/dev/null; }
 step() { echo; echo "▸ $1"; sleep "$2"; }
+# Simulates a long wait: moves the session's "since" back by $2 seconds (the file uses the on-disk names).
+age() {
+  local t; t=$(date +%s)
+  sed -i '' -E "s/\"since\":[0-9.e+]+/\"since\":$((t - $2))/; s/\"updated\":[0-9.e+]+/\"updated\":$t/" "$D/sessions/$1.json"
+}
 
 now=$(date +%s)
 five_hour=$((now + 3 * 3600))
@@ -53,8 +60,13 @@ step "The notch stretches and shows the request summary." 5
 rm -f "$D/demo-panel"
 sleep 1
 
+age demo-api 660
+step "Waiting for over 10 minutes: Psiu panics, eyes on fire and a red edge around the notch." 6
+age demo-api 1900
+step "Waiting for over 30 minutes: burnt, X eyes and smoke." 6
+
 ev '{"session_id":"demo-api","hook_event_name":"PostToolUse","cwd":"/tmp/api"}'
-step "Permission granted (simulated): back to blue." 4
+step "Permission granted (simulated): Psiu shakes off the soot and goes back to blue." 4
 
 ev '{"session_id":"demo-api","hook_event_name":"Stop","cwd":"/tmp/api","last_assistant_message":"'"$api_reply"'","background_tasks":[]}'
 step "Done: green and smiling, with a sound." 6
@@ -62,7 +74,7 @@ step "Done: green and smiling, with a sound." 6
 ev '{"session_id":"demo-site","hook_event_name":"SessionStart","cwd":"/tmp/site"}'
 ev '{"session_id":"demo-site","hook_event_name":"UserPromptSubmit","cwd":"/tmp/site","prompt":"'"$site_prompt"'"}'
 st "{\"session_id\":\"demo-site\",\"workspace\":{\"project_dir\":\"/tmp/site\"},\"context_window\":{\"used_percentage\":86},$limits}"
-step "Second session with high context: tired robot, red dot, and the green dot for api that you haven't seen." 7
+step "Second session with high context: tired robot, purple dot, and the green dot for api that you haven't seen." 7
 
 ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$site_reply"'","background_tasks":[{"type":"shell","status":"running"}]}'
 step "The turn ended, but a shell is running in the background: Psiu sinks into the notch and peeks." 6

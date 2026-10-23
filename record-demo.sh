@@ -1,7 +1,7 @@
 #!/bin/bash
 # Records the Psiu demo hands-free: records the top of the main screen while demo.sh runs
-# and converts the video into docs/demo.gif (pt) or docs/demo-en.gif (en). Needs Psiu open and
-# Screen Recording permission for the app running this script (macOS asks once).
+# and converts the video into docs/demo.gif (pt) or docs/demo-en.gif (en). Needs Psiu installed in
+# Applications and Screen Recording permission for the app running this script (macOS asks once).
 # Usage: bash record-demo.sh [pt|en]
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,20 +13,26 @@ case "$lang" in
   *) echo "Usage: bash record-demo.sh [pt|en]"; exit 1 ;;
 esac
 
-pgrep -qx Psiu || { echo "Open Psiu first (open -a Psiu)."; exit 1; }
+P="/Applications/Psiu.app/Contents/MacOS/Psiu"
+[ -x "$P" ] || { echo "Install Psiu in Applications first."; exit 1; }
 
-# Sets Psiu's language only while recording, then puts the preferences back as they were.
-domain=io.github.jaimebrolesi.psiu
-prefs="$(mktemp)"
-if defaults read "$domain" >/dev/null 2>&1; then defaults export "$domain" "$prefs"; else rm -f "$prefs"; fi
-reopen() { pkill -x Psiu || true; sleep 1; open /Applications/Psiu.app; sleep 3; }
-restore_language() {
-  if [ -f "$prefs" ]; then defaults import "$domain" "$prefs"; rm -f "$prefs"; else defaults delete "$domain" 2>/dev/null || true; fi
-  reopen
+# Records with an isolated Psiu in a temporary home: your real sessions, limits and scoreboard
+# never show up in the GIF and stay untouched. Your Psiu is closed meanwhile and reopened at the end.
+demo_home="$(mktemp -d)"
+mkdir -p "$demo_home/.claude"
+# Counts as connected to Claude Code, so the isolated Psiu doesn't ask to connect.
+printf '{"statusLine":{"type":"command","command":"\\"%s\\" statusline"}}' "$P" > "$demo_home/.claude/settings.json"
+pkill -x Psiu || true; sleep 1
+HOME="$demo_home" "$P" -AppleLanguages "($languages)" >/dev/null 2>&1 &
+demo_psiu=$!
+finish() {
+  kill "$demo_psiu" 2>/dev/null || true
+  wait "$demo_psiu" 2>/dev/null || true
+  rm -rf "$demo_home"
+  sleep 1; open /Applications/Psiu.app
 }
-trap restore_language EXIT
-defaults write "$domain" AppleLanguages -array "$languages"
-reopen
+trap finish EXIT
+sleep 3
 
 # Width of the main screen in points, to center the recording on the notch.
 width=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); $.NSScreen.screens.objectAtIndex(0).frame.size.width')
@@ -36,11 +42,11 @@ x=$(( (width - w) / 2 ))
 
 mkdir -p build
 rm -f build/demo.mov
-echo "Recording the ${w}x${h} region at the top of the screen (x=$x) for 60 s..."
-screencapture -v -V 60 -R "${x},0,${w},${h}" build/demo.mov &
+echo "Recording the ${w}x${h} region at the top of the screen (x=$x) for 75 s..."
+screencapture -v -V 75 -R "${x},0,${w},${h}" build/demo.mov &
 recorder=$!
 sleep 2
-PSIU_DEMO_LANG=$lang bash demo.sh
+HOME="$demo_home" PSIU_DEMO_LANG=$lang PSIU_DEMO_LANGUAGES=$languages bash demo.sh
 wait "$recorder"
 
 [ -s build/demo.mov ] || { echo "The recording wasn't created. Check the Screen Recording permission."; exit 1; }
