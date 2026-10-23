@@ -26,7 +26,7 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 ## What the robot shows
 
 <p align="center">
-  <img src="docs/gestures.svg" width="900" alt="The eight robot states">
+  <img src="docs/gestures.svg" width="900" alt="The nine robot states">
 </p>
 
 | | State | What it means | Sound |

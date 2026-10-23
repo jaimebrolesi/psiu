@@ -24,7 +24,7 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 ## O que o robô mostra
 
 <p align="center">
-  <img src="docs/gestures.svg" width="900" alt="Os oito estados do robô">
+  <img src="docs/gestures.svg" width="900" alt="Os nove estados do robô">
 </p>
 
 | | Estado | O que significa | Som |
