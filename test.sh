@@ -60,11 +60,13 @@ check "universal (Apple silicon and Intel)" test "$(lipo -archs "$P" | tr ' ' '\
 for arch in arm64 x86_64; do
   check "$arch runs on macOS 14" test "$(lipo -thin $arch "$P" -output "$T/$arch" && otool -l "$T/$arch" | awk '/LC_BUILD_VERSION/ {f=1} f && /minos/ {print $2; exit}')" = "14.0"
 done
-if arch -x86_64 /usr/bin/true 2>/dev/null; then   # Rosetta is installed: try the Intel side too
+# The Intel side runs under Rosetta only on GitHub (CI=true): on a Mac with a person at it, macOS 26 warns
+# that apps using Rosetta will stop working in a future macOS.
+if [ "${CI:-}" = true ] && arch -x86_64 /usr/bin/true 2>/dev/null; then
   out=$(echo '{"session_id":"intel","context_window":{"used_percentage":7}}' | HOME="$T" arch -x86_64 "$P" statusline -AppleLanguages "(en-US)")
   check "Intel build answers the status line" test "$out" = "context 7%"
 else
-  echo "  skip  Intel build (Rosetta not installed)"
+  echo "  skip  Intel build (only on GitHub, or Rosetta not installed)"
 fi
 
 echo "Images"
