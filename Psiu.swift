@@ -832,6 +832,14 @@ final class PanelGeometry: ObservableObject {
     @Published var H: CGFloat = 260
     var screenFrame: NSRect = .zero
 
+    /// Closed: extra width on each side while a dot is lit, so the dot clears the physical notch.
+    @Published var dotsRoom: CGFloat = 0
+    var hasNotch = false
+    /// Closed width, with room for the dots when needed.
+    var closedWidth: CGFloat { w + 2 * dotsRoom }
+    /// A dot (5) and its gap to the robot (6), plus 3 so it doesn't touch the notch's edge.
+    static let dotsRoomWidth: CGFloat = 14
+
     /// Open, the top strip grows to this height so Psiu can be bigger.
     static let openStripHeight: CGFloat = 44
     /// Height of the top strip, closed or open.
@@ -867,6 +875,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.store.reload()
+                self?.updateDotsRoom()
                 self?.checkDemo()
             }
         }
@@ -1025,13 +1034,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         entry.geo.screenFrame = f
         entry.geo.h = notch > 0 ? screen.safeAreaInsets.top : (menuBarHeight >= 20 ? menuBarHeight : 24)
         entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 46
+        entry.geo.hasNotch = notch > 0
+        entry.geo.dotsRoom = dotsRoom(for: entry.geo)
         applyFrame(entry)
+    }
+
+    /// On screens with a physical notch, the closed notch widens while a dot is lit; elsewhere the dot is already visible.
+    func dotsRoom(for geo: PanelGeometry) -> CGFloat {
+        geo.hasNotch && (store.greenDot || store.highContext) ? PanelGeometry.dotsRoomWidth : 0
+    }
+
+    func updateDotsRoom() {
+        for (id, entry) in panels {
+            let target = dotsRoom(for: entry.geo)
+            guard entry.geo.dotsRoom != target else { continue }
+            if entry.geo.isOpen {   // the open panel doesn't depend on it
+                entry.geo.dotsRoom = target
+            } else if target > entry.geo.dotsRoom {
+                // Growing: first the window (transparent), then the notch stretches inside it.
+                let g = entry.geo, w = g.w + 2 * target
+                entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - g.h, width: w, height: g.h), display: true)
+                withAnimation(springAnimation) { entry.geo.dotsRoom = target }
+            } else {
+                // Shrinking: the notch first, then the window.
+                withAnimation(springAnimation) { entry.geo.dotsRoom = target }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
+                        self.applyFrame(entry)
+                    }
+                }
+            }
+        }
     }
 
     /// Closed, the window is the size of the notch; open, the size of the panel. Always at the top, centered.
     func applyFrame(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry)) {
         let g = entry.geo
-        let w = g.isOpen ? g.W : g.w
+        let w = g.isOpen ? g.W : g.closedWidth
         let h = g.isOpen ? g.H : g.h
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - h, width: w, height: h), display: true)
     }
@@ -1042,7 +1082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         closeAll()
         store.acknowledge()
         let lines = CGFloat(min(max(store.sessions.count, 1), 5))
-        entry.geo.W = max(entry.geo.w, 340)
+        entry.geo.W = max(entry.geo.closedWidth, 340)
         entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + (store.today.burnt > 0 ? 18 : 0)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
@@ -1204,7 +1244,7 @@ struct PillView: View {
                     }
                 }
             }
-            .frame(width: geo.isOpen ? geo.W : geo.w, height: geo.isOpen ? geo.H : geo.h)
+            .frame(width: geo.isOpen ? geo.W : geo.closedWidth, height: geo.isOpen ? geo.H : geo.h)
             .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
             .overlay {
                 if store.color == .red {
