@@ -55,6 +55,18 @@ echo "Uninstall"
 psiu uninstall >/dev/null
 check "settings.json back to the original" python3 -c "import json, sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)" "$S" "$T/original.json"
 
+echo "Binary"
+check "universal (Apple silicon and Intel)" test "$(lipo -archs "$P" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 "
+for arch in arm64 x86_64; do
+  check "$arch runs on macOS 14" test "$(lipo -thin $arch "$P" -output "$T/$arch" && otool -l "$T/$arch" | awk '/LC_BUILD_VERSION/ {f=1} f && /minos/ {print $2; exit}')" = "14.0"
+done
+if arch -x86_64 /usr/bin/true 2>/dev/null; then   # Rosetta is installed: try the Intel side too
+  out=$(echo '{"session_id":"intel","context_window":{"used_percentage":7}}' | HOME="$T" arch -x86_64 "$P" statusline -AppleLanguages "(en-US)")
+  check "Intel build answers the status line" test "$out" = "context 7%"
+else
+  echo "  skip  Intel build (Rosetta not installed)"
+fi
+
 echo "Images"
 size() { sips -g pixelWidth -g pixelHeight "$1" 2>/dev/null | awk '/pixel/ {printf "%s ", $2}'; }
 check "icon is 1024 x 1024" test "$(size build/icon-1024.png)" = "1024 1024 "

@@ -88,7 +88,7 @@ Em telas sem notch, como um monitor externo, o Psiu desenha um notch do mesmo ta
 4. O Psiu pergunta se pode se ligar ao Claude Code. Clique em **Ligar**: ele grava os hooks e a status line em `~/.claude/settings.json`, guardando um backup do arquivo original, e se registra para abrir no login.
 5. Reinicie as sessões do Claude Code que já estavam abertas.
 
-Requisitos: macOS 14 (Sonoma) ou mais novo, e o Claude Code. Os números de uso do plano exigem assinatura Claude Pro ou Max.
+Requisitos: macOS 14 (Sonoma) ou mais novo, em Apple silicon ou Intel, e o Claude Code. Os números de uso do plano exigem assinatura Claude Pro ou Max.
 
 > O Psiu fala português quando o Mac está em português do Brasil e inglês nos demais idiomas.
 

@@ -90,7 +90,7 @@ On displays without a notch, like an external monitor, Psiu draws a notch of the
 4. Psiu asks to connect to Claude Code. Click **Connect**: it adds its hooks and status line to `~/.claude/settings.json` (keeping a backup of your original file) and registers itself to open at login.
 5. Restart any Claude Code sessions that were already open.
 
-Requirements: macOS 14 (Sonoma) or later, and Claude Code. The plan usage numbers need a Claude Pro or Max subscription.
+Requirements: macOS 14 (Sonoma) or later, on Apple silicon or Intel, and Claude Code. The plan usage numbers need a Claude Pro or Max subscription.
 
 > Psiu speaks English, or Brazilian Portuguese when that is your Mac's language.
 

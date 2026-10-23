@@ -17,8 +17,14 @@ mkdir -p build
 find build -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf {} +
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-echo "Compiling..."
-swiftc -O Psiu.swift -o "$app/Contents/MacOS/Psiu"
+# A universal binary for Apple silicon and Intel, both for macOS 14 (without -target, the compiler would
+# require the macOS of the SDK it builds with).
+echo "Compiling for Apple silicon and Intel..."
+for arch in arm64 x86_64; do
+  swiftc -O -target "$arch-apple-macos14.0" Psiu.swift -o "build/Psiu-$arch"
+done
+lipo -create build/Psiu-arm64 build/Psiu-x86_64 -output "$app/Contents/MacOS/Psiu"
+rm -f build/Psiu-arm64 build/Psiu-x86_64
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
