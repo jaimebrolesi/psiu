@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Psiu: a tiny robot in your notch for Claude Code</title>
+<meta name="description" content="Psiu sits in your Mac’s notch, shows what every Claude Code session is doing and calls you, with a color and a sound, when one finishes or needs you. Free, open source, private.">
+<meta name="author" content="Jaime Brolesi">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="alternate" hreflang="en" href="https://jaimebrolesi.github.io/psiu/">
+<link rel="alternate" hreflang="pt-BR" href="https://jaimebrolesi.github.io/psiu/pt-br.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Psiu: a tiny robot in your notch for Claude Code">
+<meta property="og:description" content="Psiu sits in your Mac’s notch, shows what every Claude Code session is doing and calls you, with a color and a sound, when one finishes or needs you. Free, open source, private.">
+<meta property="og:url" content="https://jaimebrolesi.github.io/psiu/">
+<meta property="og:image" content="https://jaimebrolesi.github.io/psiu/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jaimebrolesi.github.io/psiu/social.png">
+<meta name="theme-color" content="#0E0F12">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Psiu","operatingSystem":"macOS 14+","applicationCategory":"DeveloperApplication","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://jaimebrolesi.github.io/psiu/","author":{"@type":"Person","name":"Jaime Brolesi","url":"https://www.linkedin.com/in/jaimebrolesi","sameAs":["https://www.linkedin.com/in/jaimebrolesi","https://github.com/jaimebrolesi"]}}</script>
+<style>
+:root{--bg:#0E0F12;--surface:#17181B;--surface2:#1F2125;--line:rgba(255,255,255,.08);--text:#F2F2F4;--muted:#A0A0AA;
+--green:#97C459;--blue:#85B7EB;--amber:#FAC775;--red:#E24B4A;color-scheme:dark}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-behavior:smooth;scroll-padding-top:calc(72px + env(safe-area-inset-top,0px))}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+img{max-width:100%;height:auto;display:block}
+.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:rgba(14,15,18,.82);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:11;background:rgba(14,15,18,.82);backdrop-filter:blur(14px)}
+.nav{display:flex;align-items:center;justify-content:space-between;height:60px;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;font-size:18px;text-decoration:none}
+.brand img{width:30px;height:30px}
+.links{display:flex;gap:20px;font-size:14px;color:var(--muted);align-items:center;flex-wrap:wrap}
+.links a{text-decoration:none}.links a:hover{color:var(--text)}
+.lang{border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.hero{text-align:center;padding:72px 0 24px}
+.hero h1{font-size:clamp(34px,6vw,58px);line-height:1.08;letter-spacing:-.02em;margin:0 auto 18px;max-width:820px;font-weight:720}
+.hero h1 em{font-style:normal;color:var(--green)}
+.hero p.sub{font-size:clamp(17px,2.2vw,20px);color:var(--muted);max-width:680px;margin:0 auto 30px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:12px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line)}
+.btn.primary{background:var(--green);color:#10200A;border-color:transparent}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.ghost{background:var(--surface)}.btn.ghost:hover{background:var(--surface2)}
+.note{font-size:13px;color:var(--muted);margin-top:14px}
+.showcase{margin:44px auto 0;max-width:860px}
+section{padding:72px 0;border-top:1px solid var(--line)}
+section h2{font-size:clamp(26px,3.6vw,36px);letter-spacing:-.015em;margin:0 0 12px;line-height:1.15}
+section p.lead{color:var(--muted);font-size:18px;max-width:680px;margin:0 0 32px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.card h3{margin:0 0 6px;font-size:16px;display:flex;align-items:center;gap:10px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.figure{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px;margin:0 0 28px;overflow-x:auto}
+.two{display:grid;gap:36px;grid-template-columns:1.1fr 1fr;align-items:center}
+@media (max-width:820px){.two{grid-template-columns:1fr}.links .hide-sm{display:none}}
+ul.clean{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+ul.clean li{padding-left:28px;position:relative;color:var(--muted)}
+ul.clean li strong{color:var(--text)}
+ul.clean li::before{content:"";position:absolute;left:4px;top:.62em;width:10px;height:10px;border-radius:50%;background:var(--green)}
+.steps{counter-reset:s;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:28px}
+.steps .card{position:relative;padding-top:46px}
+.steps .card::before{counter-increment:s;content:counter(s);position:absolute;top:16px;left:20px;width:22px;height:22px;border-radius:50%;background:var(--green);color:#10200A;font-weight:700;font-size:13px;display:grid;place-items:center}
+code{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+.private{display:flex;gap:18px;align-items:flex-start}
+.private .icon{flex:none;width:44px;height:44px;border-radius:12px;background:var(--surface2);display:grid;place-items:center;color:var(--green);font-size:22px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:10px}
+summary{cursor:pointer;font-weight:600}
+details p{color:var(--muted);margin:10px 0 0}
+.author{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.avatar{width:64px;height:64px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);object-fit:cover}
+footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;gap:14px;justify-content:space-between;flex-wrap:wrap}
+footer a{text-decoration:none}footer a:hover{color:var(--text)}
+
+ul.dots{list-style:none;padding:0;margin:20px 0 0;display:grid;gap:12px}
+ul.dots li{position:relative;padding-left:28px;color:var(--muted)}ul.dots li strong{color:var(--text)}
+em.q{font-style:normal;color:var(--green)}
+</style>
+</head>
+<body>
+<header><div class="wrap nav">
+  <a class="brand" href="index.html"><img src="icon.svg" alt="">Psiu</a>
+  <nav class="links"><a class="hide-sm" href="#states">How it works</a><a class="hide-sm" href="#panel">The panel</a><a class="hide-sm" href="#install">Install</a><a class="hide-sm" href="#faq">FAQ</a><a href="https://github.com/jaimebrolesi/psiu">GitHub</a><a class="lang" href="pt-br.html">Português</a></nav>
+</div></header>
+
+<main>
+<div class="wrap hero">
+  <h1>A tiny robot in your notch that tells you when <em>Claude Code needs you</em></h1>
+  <p class="sub">You leave Claude Code working, switch to something else and forget to come back. Psiu watches every session from the notch and calls you, with a color and a sound, the moment one finishes or asks for permission.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/jaimebrolesi/psiu/releases/latest/download/Psiu.dmg">Download for Mac</a>
+    <a class="btn ghost" href="https://github.com/jaimebrolesi/psiu">View on GitHub</a>
+  </div>
+  <p class="note">Free and open source · macOS 14 or later · No account, no internet</p>
+  <div class="showcase"><img src="hero.svg" width="820" height="330" alt="Psiu in the notch changing between working, needs you, done and sleeping"></div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="figure" style="padding:12px"><img src="demo.gif" width="960" alt="Psiu running: a session works, asks for permission, finishes, and the notch opens into the panel" loading="lazy"></div>
+    <h2><em class="q">“Psiu!”</em> is how Brazilians say <em class="q">“psst!”</em></h2>
+    <p class="lead" style="margin-bottom:0">The little sound you make to get someone’s attention. That is the whole job: a robot that stays quiet while things are fine and calls you when they are not.</p>
+  </div>
+</section>
+
+<section id="states">
+  <div class="wrap">
+    <h2>One look tells you everything</h2>
+    <p class="lead">The robot’s color and eyes change with your sessions. With several open, it always shows the most urgent one.</p>
+    <div class="figure"><img src="gestures.svg" width="900" height="170" alt=""></div>
+    <div class="grid"><div class="card"><h3><span class="dot" style="background:#85B7EB"></span>Working</h3><p>Eyes scanning while Claude works.</p></div><div class="card"><h3><span class="dot" style="background:#85B7EB"></span>Background</h3><p>The turn ended, but shells, monitors or subagents are still running. No false “done”.</p></div><div class="card"><h3><span class="dot" style="background:#FAC775"></span>Needs you</h3><p>Eyes and a “!” take turns, with a sound now and a reminder every 2 minutes.</p></div><div class="card"><h3><span class="dot" style="background:#97C459"></span>Done</h3><p>A happy hop and a sound. One more reminder if you haven’t looked.</p></div><div class="card"><h3><span class="dot" style="background:#5f7448"></span>Idle</h3><p>Half-closed eyes: finished, and you’ve already seen it.</p></div><div class="card"><h3><span class="dot" style="background:#888780"></span>Sleeping</h3><p>“Z z” eyes when no session is open.</p></div></div>
+    <div class="two" style="margin-top:56px">
+      <div class="figure" style="margin:0"><img src="dots.svg" width="900" height="120" alt=""></div>
+      <div><h2 style="font-size:24px">Two little dots for what the robot can’t show</h2><ul class="dots"><li style="--c:#97C459"><span style="position:absolute;left:4px;top:.62em;width:10px;height:10px;border-radius:50%;background:#97C459"></span><strong>Green dot</strong>: another session finished while the robot is busy with something more urgent.</li><li style="--c:#E24B4A"><span style="position:absolute;left:4px;top:.62em;width:10px;height:10px;border-radius:50%;background:#E24B4A"></span><strong>Red dot</strong>: a session passed 80% of its context and is close to being compacted. The robot looks tired, too.</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="panel">
+  <div class="wrap two">
+    <div><img src="panel.svg" width="760" height="520" alt="" loading="lazy" style="border-radius:16px"></div>
+    <div>
+      <h2>Click the notch. It stretches into a panel.</h2>
+      <p class="lead" style="font-size:16px;margin-bottom:22px">No pop-up balloon: the notch itself grows down, in solid black, and folds back when you click anywhere else.</p>
+      <ul class="clean"><li><strong>Plan limits that look ahead.</strong> Your 5-hour window and week, and, based on the last hour, whether your pace runs out before the reset.</li><li><strong>What each session did.</strong> A one-line summary of what it finished or what it is asking for, plus its context usage.</li><li><strong>One click to the right terminal.</strong> Terminal and iTerm jump to the exact tab; VS Code, Cursor and others come to the front.</li><li><strong>An honest mirror.</strong> How long agents worked today, how long they waited for you, and your average response time.</li></ul>
+    </div>
+  </div>
+  <div class="wrap" style="margin-top:44px">
+    <div class="card"><h3>Works on your external display too</h3><p>On screens without a notch, Psiu draws one of the same size at the top. Show it on one display or all of them.</p></div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install in a minute</h2>
+    <p class="lead"><a class="btn primary" href="https://github.com/jaimebrolesi/psiu/releases/latest/download/Psiu.dmg" style="margin-top:6px">Download for Mac</a></p>
+    <div class="steps"><div class="card"><h3>Download</h3><p>Get <code>Psiu.dmg</code> from the latest release.</p></div><div class="card"><h3>Drag</h3><p>Open it and drag Psiu into Applications.</p></div><div class="card"><h3>Allow</h3><p>First launch: macOS blocks unsigned apps. Go to <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>.</p></div><div class="card"><h3>Connect</h3><p>Psiu asks to connect to Claude Code. Click <strong>Connect</strong>, then restart your open sessions.</p></div></div>
+    <div class="figure" style="max-width:600px;margin:0 auto 18px;padding:12px"><img src="dmg.svg" width="640" height="428" alt="The Psiu installer window" loading="lazy"></div>
+    <p class="note" style="text-align:center">Requires macOS 14 Sonoma or later and Claude Code. Plan usage needs Claude Pro or Max. The app interface is in Brazilian Portuguese for now.</p>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap private">
+    <div class="icon">✓</div>
+    <div><h2 style="font-size:26px">Private by design</h2><p class="lead" style="font-size:16px;margin:0">Psiu never connects to the internet, never reads passwords or tokens and keeps everything in <code>~/.psiu</code> on your Mac. It only uses official Claude Code hooks and the status line, and the one setting it changes, <code>~/.claude/settings.json</code>, gets a backup first. Uninstall from the robot’s menu and your previous status line comes back.</p></div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap"><h2>Questions</h2><details><summary>Does it work with the Claude app or claude.ai?</summary><p>Not yet. Only Claude Code exposes what a session is doing. The Claude app has its own “response completed” notification in Settings.</p></details><details><summary>Why does macOS block it the first time?</summary><p>Psiu is free and not notarized by Apple, which costs a paid developer account. Open Anyway in Privacy &amp; Security is a one-time step.</p></details><details><summary>Will it slow Claude Code down?</summary><p>No. Each hook is a tiny local call that writes a small file and exits.</p></details><details><summary>Can I build it myself?</summary><p>Yes. It is a single Swift file with no dependencies. Run <code>bash gerar-dmg.sh</code> and you get the same app and installer.</p></details><details><summary>Can I fork it?</summary><p>The code is MIT, so yes, even commercially. The Psiu name, the robot and the icon stay with the author: give your fork its own name and character.</p></details></div>
+</section>
+
+<section>
+  <div class="wrap author">
+    <img class="avatar" src="https://github.com/jaimebrolesi.png?size=128" width="64" height="64" alt="Jaime Brolesi">
+    <div style="flex:1;min-width:240px">
+      <h2 style="font-size:24px;margin-bottom:6px">Made by Jaime Brolesi</h2>
+      <p style="color:var(--muted);margin:0 0 14px">Built with Claude to stop losing time to sessions waiting in the background. If Psiu helps you, a star on GitHub or a post about it means a lot.</p>
+      <a class="btn ghost" href="https://github.com/jaimebrolesi/psiu">★ Star on GitHub</a>
+      <a class="btn ghost" href="https://www.linkedin.com/in/jaimebrolesi">LinkedIn</a>
+      <a class="btn ghost" href="https://github.com/jaimebrolesi">GitHub</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">
+  <span>© 2026 <a href="https://www.linkedin.com/in/jaimebrolesi">Jaime Brolesi</a> · Code under the MIT License · The Psiu name and robot are reserved</span>
+  <span><a href="https://github.com/jaimebrolesi/psiu">GitHub</a> · <a href="https://github.com/jaimebrolesi/psiu/blob/main/LICENSE">License</a> · <a href="pt-br.html">Português</a></span>
+</div></footer>
+</body>
+</html>
