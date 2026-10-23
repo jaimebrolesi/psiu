@@ -82,6 +82,8 @@ Em telas sem notch, como um monitor externo, o Psiu desenha um notch do mesmo ta
 
 Requisitos: macOS 14 (Sonoma) ou mais novo, e o Claude Code. Os números de uso do plano exigem assinatura Claude Pro ou Max.
 
+> O Psiu fala português quando o Mac está em português do Brasil e inglês nos demais idiomas.
+
 ## Compilar a partir do código
 
 ```bash

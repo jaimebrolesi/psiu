@@ -20,7 +20,7 @@
 You give Claude Code a long task, switch to the browser or a meeting, and forget to come back. Twenty minutes later you find it has been waiting for a permission since minute two. Psiu sits in the notch, shows at a glance what every session is doing, and calls you, with a color and a sound, when a session finishes or needs you.
 
 <p align="center">
-  <img src="docs/demo.gif" width="820" alt="Psiu running: a session works, asks for permission, finishes, and the notch opens into the panel">
+  <img src="docs/demo-en.gif" width="820" alt="Psiu running: a session works, asks for permission, finishes, and the notch opens into the panel">
 </p>
 
 ## What the robot shows
@@ -58,7 +58,7 @@ Each dot only appears when it tells you something the robot is not already showi
 Click the notch and it stretches down into a panel. Click it again, or anywhere else, to close it.
 
 <p align="center">
-  <img src="docs/panel.svg" width="760" alt="The notch stretching down into the panel">
+  <img src="docs/panel-en.svg" width="760" alt="The notch stretching down into the panel">
 </p>
 
 - **5-hour window and week**, with when they reset. Based on the last hour, Psiu tells you if your current pace runs out the 5-hour window before it resets.
@@ -84,7 +84,7 @@ On displays without a notch, like an external monitor, Psiu draws a notch of the
 
 Requirements: macOS 14 (Sonoma) or later, and Claude Code. The plan usage numbers need a Claude Pro or Max subscription.
 
-> The app interface is in Brazilian Portuguese for now.
+> Psiu speaks English, or Brazilian Portuguese when that is your Mac's language.
 
 ## Build from source
 

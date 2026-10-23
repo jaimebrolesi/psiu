@@ -29,14 +29,23 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Psiu</string>
   <key>CFBundleIconFile</key><string>Psiu</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>pt-BR</string></array>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>O Psiu traz para a frente a janela do terminal da sessão que você clicar.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Psiu brings the terminal window of the session you click to the front.</string>
 </dict>
 </plist>
 PLIST
+
+# Textos do Info.plist em português do Brasil; o inglês fica no próprio Info.plist.
+mkdir -p "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/pt-BR.lproj"
+touch "$app/Contents/Resources/en.lproj/InfoPlist.strings"
+cat > "$app/Contents/Resources/pt-BR.lproj/InfoPlist.strings" <<'STRINGS'
+"NSAppleEventsUsageDescription" = "O Psiu traz para a frente a janela do terminal da sessão que você clicar.";
+STRINGS
 
 echo "Desenhando o ícone..."
 mkdir -p build/Psiu.iconset
@@ -58,7 +67,8 @@ tiffutil -cathidpicheck build/fundo.png build/fundo@2x.png -out build/fundo.tiff
 echo "Montando o .dmg..."
 mkdir -p build/dmg/.background
 cp -R "$app" build/dmg/
-ln -s /Applications build/dmg/Aplicativos
+# O Finder mostra o nome do atalho como está, sem traduzir: fica em inglês, como o fundo bilíngue.
+ln -s /Applications build/dmg/Applications
 cp build/fundo.tiff build/dmg/.background/fundo.tiff
 
 # Se sobrou um volume "Psiu" montado de uma geração anterior, desmonta antes.
@@ -83,7 +93,7 @@ tell application "Finder"
         set text size of opcoes to 13
         set background picture of opcoes to file ".background:fundo.tiff"
         set position of item "Psiu.app" of container window to {170, 190}
-        set position of item "Aplicativos" of container window to {470, 190}
+        set position of item "Applications" of container window to {470, 190}
         close
         open
         update without registering applications

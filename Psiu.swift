@@ -23,6 +23,15 @@ let prevStatusFile = baseDir.appendingPathComponent("statusline-anterior.txt")
 /// O próprio executável: /Applications/Psiu.app/Contents/MacOS/Psiu depois de instalado.
 let binPath = Bundle.main.executablePath ?? CommandLine.arguments[0]
 
+/// Português quando o primeiro idioma do macOS é o português do Brasil; inglês em qualquer outro caso.
+let emPortugues: Bool = {
+    let l = Locale.preferredLanguages.first ?? ""
+    return l == "pt" || l.hasPrefix("pt-BR")
+}()
+
+/// Escolhe o texto no idioma do sistema.
+func tr(_ pt: String, _ en: String) -> String { emPortugues ? pt : en }
+
 /// Reconhece comandos do Psiu e do Farol (a versão anterior), para trocar um pelo outro sem duplicar.
 func ehDoPsiu(_ cmd: String) -> Bool {
     cmd.contains("/Psiu.app/Contents/MacOS/Psiu") || cmd.contains("/.farol/bin/Farol")
@@ -124,17 +133,17 @@ func runHook() {
         novo = "running"
         let pedido = input["prompt"] as? String ?? ""
         rec["resumo"] = pedido.hasPrefix("<")
-            ? "Retomou depois de uma tarefa em segundo plano."
-            : "Pedido: " + limpar(pedido, 140)
+            ? tr("Retomou depois de uma tarefa em segundo plano.", "Resumed after a background task.")
+            : tr("Pedido: ", "Prompt: ") + limpar(pedido, 140)
     case "PreToolUse", "PostToolUse":
         novo = "running"
     case "PermissionRequest":
         novo = "awaiting"
-        let ferramenta = input["tool_name"] as? String ?? "uma ferramenta"
+        let ferramenta = input["tool_name"] as? String ?? tr("uma ferramenta", "a tool")
         if let cmd = (input["tool_input"] as? [String: Any])?["command"] as? String {
-            rec["resumo"] = "Quer permissão para \(ferramenta): " + limpar(cmd, 90)
+            rec["resumo"] = tr("Quer permissão para \(ferramenta): ", "Wants permission for \(ferramenta): ") + limpar(cmd, 90)
         } else {
-            rec["resumo"] = "Quer permissão para usar \(ferramenta)."
+            rec["resumo"] = tr("Quer permissão para usar \(ferramenta).", "Wants permission to use \(ferramenta).")
         }
     case "Notification":
         let tipo = input["notification_type"] as? String ?? ""
@@ -161,7 +170,7 @@ func runHook() {
             var ordem: [String] = []
             var contagem: [String: Int] = [:]
             for t in tarefas {
-                let tipo = t["type"] as? String ?? "tarefa"
+                let tipo = t["type"] as? String ?? tr("tarefa", "task")
                 if contagem[tipo] == nil { ordem.append(tipo) }
                 contagem[tipo, default: 0] += 1
             }
@@ -201,11 +210,11 @@ func runStatusLine() {
         }
         writeJSON(m, to: sessionsDir.appendingPathComponent("\(safeID(rawID)).metrics.json"))
     }
-    if let ctx { partes.append("contexto \(Int(ctx.rounded()))%") }
+    if let ctx { partes.append(tr("contexto", "context") + " \(Int(ctx.rounded()))%") }
 
     if let rl = input["rate_limits"] as? [String: Any] {
         var lim = readJSON(limitsFile) ?? [:]
-        for (chave, rotulo) in [("five_hour", "5h"), ("seven_day", "semana")] {
+        for (chave, rotulo) in [("five_hour", "5h"), ("seven_day", tr("semana", "week"))] {
             guard let w = rl[chave] as? [String: Any], let p = num(w["used_percentage"]) else { continue }
             lim[chave] = ["pct": p, "resets": num(w["resets_at"]) ?? 0]
             partes.append("\(rotulo) \(Int(p.rounded()))%")
@@ -242,7 +251,7 @@ let settingsURL = home.appendingPathComponent(".claude/settings.json")
 func carregarSettings() -> (dict: [String: Any], bruto: Data?) {
     guard let data = try? Data(contentsOf: settingsURL) else { return ([:], nil) }
     guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-        print("O ~/.claude/settings.json não é um JSON válido. Nada foi alterado.")
+        print(tr("O ~/.claude/settings.json não é um JSON válido. Nada foi alterado.", "~/.claude/settings.json is not valid JSON. Nothing was changed."))
         exit(1)
     }
     return (obj, data)
@@ -259,13 +268,13 @@ func backup(_ data: Data?) {
         .sorted { carimbo($0) < carimbo($1) }
     if let original = existentes.first {
         for nome in existentes.dropFirst() { try? fm.removeItem(at: dir.appendingPathComponent(nome)) }
-        if existentes.count > 1 { print("Backups intermediários apagados: \(existentes.count - 1).") }
-        print("Backup original preservado: \(dir.appendingPathComponent(original).path)")
+        if existentes.count > 1 { print(tr("Backups intermediários apagados: \(existentes.count - 1).", "Intermediate backups deleted: \(existentes.count - 1).")) }
+        print(tr("Backup original preservado: \(dir.appendingPathComponent(original).path)", "Original backup kept: \(dir.appendingPathComponent(original).path)"))
         return
     }
     let url = dir.appendingPathComponent("\(prefixo)\(Int(Date().timeIntervalSince1970))")
     try? data.write(to: url)
-    print("Backup do settings.json: \(url.path)")
+    print(tr("Backup do settings.json: \(url.path)", "settings.json backup: \(url.path)"))
 }
 
 func semFarol(_ grupos: [[String: Any]]) -> [[String: Any]] {
@@ -306,20 +315,20 @@ func runInstall() {
     var sl = settings["statusLine"] as? [String: Any] ?? [:]
     if let cmd = sl["command"] as? String, !ehDoPsiu(cmd) {
         try? cmd.write(to: prevStatusFile, atomically: true, encoding: .utf8)
-        print("Sua status line anterior foi guardada e continua aparecendo no terminal.")
+        print(tr("Sua status line anterior foi guardada e continua aparecendo no terminal.", "Your previous status line was saved and still shows in the terminal."))
     }
     sl["type"] = "command"
     sl["command"] = "\"\(binPath)\" statusline"
     settings["statusLine"] = sl
 
     writeJSON(settings, to: settingsURL, pretty: true)
-    print("Hooks do Psiu: \(eventosFarol.map { $0.0 }.joined(separator: ", ")).")
-    print("Status line do Psiu instalada. Reinicie as sessões do Claude Code abertas.")
+    print(tr("Hooks do Psiu: \(eventosFarol.map { $0.0 }.joined(separator: ", ")).", "Psiu hooks: \(eventosFarol.map { $0.0 }.joined(separator: ", "))."))
+    print(tr("Status line do Psiu instalada. Reinicie as sessões do Claude Code abertas.", "Psiu status line installed. Restart any open Claude Code sessions."))
 }
 
 func runUninstall() {
     var (settings, bruto) = carregarSettings()
-    guard bruto != nil else { print("Não há settings.json. Nada a desfazer."); return }
+    guard bruto != nil else { print(tr("Não há settings.json. Nada a desfazer.", "There is no settings.json. Nothing to undo.")); return }
     backup(bruto)
 
     if var hooks = settings["hooks"] as? [String: Any] {
@@ -336,13 +345,13 @@ func runUninstall() {
             var novo = sl
             novo["command"] = prev
             settings["statusLine"] = novo
-            print("Sua status line anterior foi restaurada.")
+            print(tr("Sua status line anterior foi restaurada.", "Your previous status line was restored."))
         } else {
             settings["statusLine"] = nil
         }
     }
     writeJSON(settings, to: settingsURL, pretty: true)
-    print("Psiu removido do ~/.claude/settings.json.")
+    print(tr("Psiu removido do ~/.claude/settings.json.", "Psiu removed from ~/.claude/settings.json."))
 }
 
 // MARK: - Primeiro uso, login e migração do Farol
@@ -390,10 +399,10 @@ func configurarSemJanela() {
     do {
         try SMAppService.mainApp.register()
         print(SMAppService.mainApp.status == .requiresApproval
-              ? "Abertura no login registrada; falta autorizar em Ajustes do Sistema → Geral → Itens de Início."
-              : "Abertura no login registrada.")
+              ? tr("Abertura no login registrada; falta autorizar em Ajustes do Sistema → Geral → Itens de Início.", "Open at login registered; approve it in System Settings → General → Login Items.")
+              : tr("Abertura no login registrada.", "Open at login registered."))
     } catch {
-        print("Não consegui registrar a abertura no login: \(error.localizedDescription)")
+        print(tr("Não consegui registrar a abertura no login: \(error.localizedDescription)", "Couldn't register open at login: \(error.localizedDescription)"))
     }
 }
 
@@ -413,12 +422,12 @@ func gerarIcone(_ destino: String) {
     guard let img = r.nsImage, let tiff = img.tiffRepresentation,
           let rep = NSBitmapImageRep(data: tiff),
           let png = rep.representation(using: .png, properties: [:]) else {
-        print("Não consegui desenhar o ícone."); exit(1)
+        print(tr("Não consegui desenhar o ícone.", "Couldn't draw the icon.")); exit(1)
     }
     try? png.write(to: URL(fileURLWithPath: destino))
 }
 
-/// Fundo da janela do instalador (.dmg): 640 x 400, com seta do app para Aplicativos.
+/// Fundo da janela do instalador (.dmg): 640 x 400, com seta do app para Aplicativos. Bilíngue, porque é uma imagem só.
 struct FundoDMG: View {
     // Centros dos ícones na janela, os mesmos que o gerar-dmg.sh usa no Finder.
     static let app = CGPoint(x: 170, y: 190)
@@ -435,16 +444,18 @@ struct FundoDMG: View {
                         .frame(width: 34, height: 26)
                     Text("Psiu").font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
                 }
-                Text("Avisa quando o Claude Code precisa de você")
+                Text("Avisa quando o Claude Code precisa de você\nTells you when Claude Code needs you")
                     .font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.55))
+                    .multilineTextAlignment(.center).lineSpacing(2)
             }
             .position(x: 320, y: 64)
             curva.stroke(Color(hex: 0x97C459),
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [0.1, 9]))
             ponta.stroke(Color(hex: 0x97C459),
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-            Text("Arraste o Psiu para Aplicativos")
+            Text("Arraste o Psiu para Aplicativos\nDrag Psiu to Applications")
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(Color.white.opacity(0.6))
+                .multilineTextAlignment(.center).lineSpacing(3)
                 .position(x: 320, y: 344)
         }
         .frame(width: 640, height: 400)
@@ -481,7 +492,7 @@ func gerarFundoDMG(_ pasta: String) {
         guard let img = r.nsImage, let tiff = img.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
-            print("Não consegui desenhar o fundo do instalador."); exit(1)
+            print(tr("Não consegui desenhar o fundo do instalador.", "Couldn't draw the installer background.")); exit(1)
         }
         try? png.write(to: URL(fileURLWithPath: pasta).appendingPathComponent(nome))
     }
@@ -590,7 +601,7 @@ final class Store: ObservableObject {
                 continue
             }
             var s = Sessao(id: id,
-                           projeto: r["project"] as? String ?? "sessão",
+                           projeto: r["project"] as? String ?? tr("sessão", "session"),
                            estado: Estado(rawValue: r["state"] as? String ?? "") ?? .idle,
                            desde: num(r["since"]) ?? atualizado,
                            atualizado: atualizado,
@@ -833,33 +844,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func verificarInstalacao() {
         if binPath.hasPrefix("/Volumes/") || binPath.contains("/AppTranslocation/") {
-            _ = aviso("Arraste o Psiu para Aplicativos",
-                      "Ele está rodando de dentro do instalador. Arraste o Psiu para a pasta Aplicativos e abra de lá.")
+            _ = aviso(tr("Arraste o Psiu para Aplicativos", "Drag Psiu to Applications"),
+                      tr("Ele está rodando de dentro do instalador. Arraste o Psiu para a pasta Aplicativos e abra de lá.",
+                         "It's running from inside the installer. Drag Psiu to the Applications folder and open it from there."))
             NSApp.terminate(nil)
             return
         }
         guard !psiuLigado() else { return }
-        var texto = "O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador."
-        if temFarol { texto += "\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto." }
-        guard aviso("Ligar o Psiu ao Claude Code?", texto, botoes: ["Ligar", "Agora não"]) == 0 else { return }
+        var texto = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
+                       "Psiu adds its hooks and status line to ~/.claude/settings.json, keeping a backup of the original, and opens when you log in to your Mac. Nothing leaves your computer.")
+        if temFarol { texto += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
+                                  "\n\nFarol, the previous version, will be turned off and replaced. Your scoreboard and preferences come along.") }
+        guard aviso(tr("Ligar o Psiu ao Claude Code?", "Connect Psiu to Claude Code?"), texto,
+                    botoes: [tr("Ligar", "Connect"), tr("Agora não", "Not now")]) == 0 else { return }
         migrarFarol()
         runInstall()
-        var fim = "Reinicie as sessões do Claude Code que estiverem abertas."
+        var fim = tr("Reinicie as sessões do Claude Code que estiverem abertas.", "Restart any Claude Code sessions that are open.")
         do {
             try SMAppService.mainApp.register()
             if SMAppService.mainApp.status == .requiresApproval {
-                fim += "\n\nPara ele abrir no login, autorize o Psiu em Ajustes do Sistema → Geral → Itens de Início."
+                fim += tr("\n\nPara ele abrir no login, autorize o Psiu em Ajustes do Sistema → Geral → Itens de Início.",
+                          "\n\nTo open it at login, allow Psiu in System Settings → General → Login Items.")
             }
         } catch {
-            fim += "\n\nNão consegui registrar a abertura no login: \(error.localizedDescription)"
+            fim += tr("\n\nNão consegui registrar a abertura no login: ", "\n\nCouldn't register open at login: ") + error.localizedDescription
         }
-        _ = aviso("Psiu ligado", fim)
+        _ = aviso(tr("Psiu ligado", "Psiu is connected"), fim)
     }
 
     func desinstalar() {
-        let r = aviso("Desinstalar o Psiu?",
-                      "Removo os hooks e a status line do Claude Code (a sua status line anterior volta) e tiro o Psiu do login. Depois, é só arrastar o Psiu de Aplicativos para o Lixo.",
-                      botoes: ["Desinstalar", "Cancelar"])
+        let r = aviso(tr("Desinstalar o Psiu?", "Uninstall Psiu?"),
+                      tr("Removo os hooks e a status line do Claude Code (a sua status line anterior volta) e tiro o Psiu do login. Depois, é só arrastar o Psiu de Aplicativos para o Lixo.",
+                         "I'll remove the hooks and status line from Claude Code (your previous status line comes back) and take Psiu out of your login items. Then just drag Psiu from Applications to the Trash."),
+                      botoes: [tr("Desinstalar", "Uninstall"), tr("Cancelar", "Cancel")])
         guard r == 0 else { return }
         runUninstall()
         try? SMAppService.mainApp.unregister()
@@ -1121,25 +1138,25 @@ struct PillView: View {
             .frame(width: geo.aberto ? geo.W : geo.w, height: geo.aberto ? geo.H : geo.h)
             .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: raio, bottomTrailingRadius: raio))
             .contextMenu {
-                Menu("Mostrar em") {
+                Menu(tr("Mostrar em", "Show on")) {
                     ForEach(app.telas, id: \.self) { nome in
                         Toggle(nome, isOn: Binding(
                             get: { app.visivel(nome) },
                             set: { _ in app.alternarTela(nome) }))
                     }
                 }
-                Toggle("Silenciar sons", isOn: Binding(
+                Toggle(tr("Silenciar sons", "Mute sounds"), isOn: Binding(
                     get: { store.mudo },
                     set: { store.mudo = $0; app.salvarPrefs() }))
-                Button("Testar sons") {
+                Button(tr("Testar sons", "Test sounds")) {
                     NSSound(named: NSSound.Name(Sons.permissao))?.play()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         NSSound(named: NSSound.Name(Sons.terminou))?.play()
                     }
                 }
                 Divider()
-                Button("Sair do Psiu") { NSApp.terminate(nil) }
-                Button("Desinstalar o Psiu…") { app.desinstalar() }
+                Button(tr("Sair do Psiu", "Quit Psiu")) { NSApp.terminate(nil) }
+                Button(tr("Desinstalar o Psiu…", "Uninstall Psiu…")) { app.desinstalar() }
             }
             Spacer(minLength: 0)
         }
@@ -1333,8 +1350,14 @@ func duracao(_ seg: Double) -> String {
 
 func horaCurta(_ epoch: Double, _ formato: String = "HH'h'mm") -> String {
     let f = DateFormatter()
-    f.locale = Locale(identifier: "pt_BR")
-    f.dateFormat = formato
+    if emPortugues {
+        f.locale = Locale(identifier: "pt_BR")
+        f.dateFormat = formato
+    } else {
+        // Inglês com as convenções da região (12 ou 24 horas).
+        f.locale = Locale(identifier: "en_" + (Locale.current.region?.identifier ?? "US"))
+        f.setLocalizedDateFormatFromTemplate(formato.contains("EEE") ? "EEEjmm" : "jmm")
+    }
     return f.string(from: Date(timeIntervalSince1970: epoch))
 }
 
@@ -1344,12 +1367,12 @@ struct DetalheView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LimiteView(titulo: "Sessão de 5 horas", janela: store.cincoHoras, formato: "HH:mm",
+            LimiteView(titulo: tr("Sessão de 5 horas", "5-hour session"), janela: store.cincoHoras, formato: "HH:mm",
                        estouro: store.previsao, folga: store.previsaoFolga)
-            LimiteView(titulo: "Semana", janela: store.semana, formato: "EEE HH:mm")
+            LimiteView(titulo: tr("Semana", "Week"), janela: store.semana, formato: "EEE HH:mm")
             Divider()
             if store.sessoes.isEmpty {
-                Text("Nenhuma sessão do Claude Code aberta.")
+                Text(tr("Nenhuma sessão do Claude Code aberta.", "No Claude Code sessions open."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
                 ForEach(store.sessoes.prefix(5)) { s in
@@ -1401,22 +1424,22 @@ struct LimiteView: View {
                     Text(renovacao(j)).font(.system(size: 10)).foregroundStyle(.secondary)
                     Spacer()
                     if let e = estouro {
-                        Text("No ritmo atual, acaba às \(horaCurta(e))")
+                        Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + horaCurta(e))
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(Color(hex: 0xFAC775))
                     } else if folga {
-                        Text("No ritmo atual, dá folga").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text(tr("No ritmo atual, dá folga", "At this pace, plenty left")).font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                 }
             } else {
-                Text("Aparece depois da primeira resposta numa sessão.")
+                Text(tr("Aparece depois da primeira resposta numa sessão.", "Shows up after the first reply in a session."))
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }
     }
 
     func renovacao(_ j: Janela) -> String {
-        guard j.reinicia > 0 else { return "Janela renovada" }
-        return "Renova \(horaCurta(j.reinicia, formato))"
+        guard j.reinicia > 0 else { return tr("Janela renovada", "Window reset") }
+        return tr("Renova ", "Resets ") + horaCurta(j.reinicia, formato)
     }
 }
 
@@ -1441,7 +1464,7 @@ struct SessaoView: View {
             Spacer(minLength: 4)
             if let c = s.ctx {
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text("contexto \(Int(c.rounded()))%")
+                    Text(tr("contexto", "context") + " \(Int(c.rounded()))%")
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
                         .foregroundStyle(c >= 80 ? Color(hex: 0xE24B4A) : (c >= 70 ? Color.orange : Color.secondary))
                     ProgressView(value: min(c, 100), total: 100)
@@ -1455,14 +1478,17 @@ struct SessaoView: View {
         let agora = Date().timeIntervalSince1970
         let minutos = Int((agora - s.desde) / 60)
         let ha = minutos < 1 ? "agora" : "há \(minutos) min"
+        let agoraEn = minutos < 1
         switch s.estado {
         case .running:
             let silencio = Int((agora - s.atualizado) / 60)
-            return silencio >= 10 ? "· trabalhando, sem sinal há \(silencio) min" : "· trabalhando, \(ha)"
-        case .background: return "· em segundo plano: \(s.bg ?? "tarefas")"
-        case .awaiting: return "· precisa de você, \(ha)"
-        case .done: return "· terminou, \(ha)"
-        case .idle: return "· parado, \(ha)"
+            return silencio >= 10
+                ? tr("· trabalhando, sem sinal há \(silencio) min", "· working, no signal for \(silencio) min")
+                : tr("· trabalhando, \(ha)", agoraEn ? "· working, just now" : "· working for \(minutos) min")
+        case .background: return tr("· em segundo plano: ", "· in background: ") + (s.bg ?? tr("tarefas", "tasks"))
+        case .awaiting: return tr("· precisa de você, \(ha)", agoraEn ? "· needs you, just now" : "· needs you for \(minutos) min")
+        case .done: return tr("· terminou, \(ha)", agoraEn ? "· finished just now" : "· finished \(minutos) min ago")
+        case .idle: return tr("· parado, \(ha)", agoraEn ? "· idle, just now" : "· idle for \(minutos) min")
         }
     }
 }
@@ -1474,15 +1500,15 @@ struct PlacarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Hoje").font(.system(size: 12, weight: .medium))
+                Text(tr("Hoje", "Today")).font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text("7 dias: esperou você \(duracao(semanaEsp))").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(tr("7 dias: esperou você ", "7 days: waited for you ") + duracao(semanaEsp)).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
-                metrica("Agente trabalhando", duracao(hoje.trab), nil)
-                metrica("Esperando você", duracao(hoje.esp), Color(hex: 0xFAC775))
-                metrica("Sua resposta média",
-                        hoje.nResp > 0 ? duracao(hoje.tResp / Double(hoje.nResp)) : "sem dados", nil)
+                metrica(tr("Agente trabalhando", "Agent working"), duracao(hoje.trab), nil)
+                metrica(tr("Esperando você", "Waiting for you"), duracao(hoje.esp), Color(hex: 0xFAC775))
+                metrica(tr("Sua resposta média", "Your avg. reply"),
+                        hoje.nResp > 0 ? duracao(hoje.tResp / Double(hoje.nResp)) : tr("sem dados", "no data"), nil)
             }
             let total = hoje.trab + hoje.esp
             if total > 0 {
@@ -1531,7 +1557,7 @@ default: break
 ensureDirs()
 let lockFD = open(baseDir.appendingPathComponent("psiu.lock").path, O_CREAT | O_RDWR, 0o644)
 if flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
-    print("O Psiu já está aberto.")
+    print(tr("O Psiu já está aberto.", "Psiu is already open."))
     exit(0)
 }
 
