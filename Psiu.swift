@@ -591,6 +591,7 @@ final class Store: ObservableObject {
     @Published var panicIDs = Set<String>()   // sessions waiting for you for 10 to 30 min
     @Published var burntIDs = Set<String>()   // sessions waiting for 30 min or more
     @Published var revivingUntil: Date?       // a burnt Psiu shaking off the soot
+    @Published var displayAsleep = false      // nobody can see the robot: screens asleep, locked or another user
 
     private var days: [String: [String: Double]] = [:]
     private var lastTick: Date?
@@ -636,12 +637,31 @@ final class Store: ObservableObject {
         return sessions.isEmpty ? .gray : .dimGreen
     }
 
+    /// Parsed JSON files and their modification dates, so unchanged files aren't read again every half second.
+    private var fileCache: [String: (date: Date, json: [String: Any])] = [:]
+    private var filesSeen = Set<String>()
+
+    private func readCached(_ url: URL) -> [String: Any]? {
+        let path = url.path
+        filesSeen.insert(path)
+        // FileManager instead of URL resource values: URLs cache those, and limitsFile is a long-lived constant.
+        guard let date = (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date else {
+            fileCache[path] = nil
+            return nil
+        }
+        if let cached = fileCache[path], cached.date == date { return cached.json }
+        guard let json = readJSON(url) else { fileCache[path] = nil; return nil }
+        fileCache[path] = (date, json)
+        return json
+    }
+
     func reload() {
         let now = Date().timeIntervalSince1970
         var list: [Session] = []
+        filesSeen = []
         let files = (try? fm.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
         for url in files where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".metrics.json") {
-            guard let r = readJSON(url) else { continue }
+            guard let r = readCached(url) else { continue }
             let id = url.deletingPathExtension().lastPathComponent
             let metricsURL = sessionsDir.appendingPathComponent("\(id).metrics.json")
             let updated = num(r["updated"]) ?? 0
@@ -661,7 +681,7 @@ final class Store: ObservableObject {
                            bundle: r["bundle"] as? String,
                            termprog: r["termprog"] as? String,
                            compactions: Int(num(r["compactacoes"]) ?? 0))
-            if let m = readJSON(metricsURL) {
+            if let m = readCached(metricsURL) {
                 s.ctx = num(m["ctx"])
                 s.model = m["model"] as? String
                 if r["project"] == nil, let p = m["project"] as? String { s.project = p }
@@ -672,7 +692,7 @@ final class Store: ObservableObject {
         if list != sessions { sessions = list }
         updateWaitLevels(now)
 
-        if let l = readJSON(limitsFile) {
+        if let l = readCached(limitsFile) {
             let c = usageWindow(l["five_hour"], now), w = usageWindow(l["seven_day"], now)
             if c != fiveHour { fiveHour = c }
             if w != week { week = w }
@@ -681,6 +701,7 @@ final class Store: ObservableObject {
         updateScoreboard(Date())
         playSoundsIfNeeded()
         firstLoad = false
+        fileCache = fileCache.filter { filesSeen.contains($0.key) }
     }
 
     // MARK: Panic and burnt Psiu
@@ -695,7 +716,16 @@ final class Store: ObservableObject {
         let revived = burntIDs.subtracting(burnt).contains { id in
             sessions.contains { $0.id == id && $0.state != .awaiting }
         }
-        if revived { revivingUntil = Date().addingTimeInterval(0.8) }
+        if revived {
+            revivingUntil = Date().addingTimeInterval(0.8)
+            // Once it's over, clear it, so the robot goes back to its usual frame rate.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let until = self.revivingUntil, until <= Date() else { return }
+                    self.revivingUntil = nil
+                }
+            }
+        }
         if panic != panicIDs { panicIDs = panic }
         if burnt != burntIDs { burntIDs = burnt }
     }
@@ -728,10 +758,22 @@ final class Store: ObservableObject {
 
     // MARK: Today's scoreboard
 
-    private func dayKey(_ d: Date) -> String {
+    private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: d)
+        return f
+    }()
+    private var lastWeek: (today: String, days: [String])?
+
+    private func dayKey(_ d: Date) -> String { Self.dayFormatter.string(from: d) }
+
+    /// Today and the six days before it, worked out again only when the day changes.
+    private func last7DayKeys(_ now: Date) -> [String] {
+        let today = dayKey(now)
+        if let w = lastWeek, w.today == today { return w.days }
+        let days = (0..<7).map { dayKey(now.addingTimeInterval(-Double($0) * 86400)) }
+        lastWeek = (today, days)
+        return days
     }
 
     private func updateScoreboard(_ now: Date) {
@@ -758,7 +800,7 @@ final class Store: ObservableObject {
         belowBurn.formIntersection(awaitingNow.keys)
         days[day] = d
 
-        let last7Days = (0..<7).map { dayKey(now.addingTimeInterval(-Double($0) * 86400)) }
+        let last7Days = last7DayKeys(now)
         days = days.filter { last7Days.contains($0.key) }
         let h = Scoreboard(working: (d["trab"] ?? 0).rounded(), waiting: (d["esp"] ?? 0).rounded(),
                        replyCount: Int(d["nResp"] ?? 0), replyTime: d["tResp"] ?? 0, burnt: Int(d["queim"] ?? 0))
@@ -881,8 +923,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var hiddenScreens = Set<String>()
     let springAnimation = Animation.spring(response: 0.45, dampingFraction: 0.86)
 
+    /// Why nobody can see the robot right now (screens asleep, screen locked, another user active).
+    private var hiddenReasons = Set<String>()
+
+    private func setHidden(_ reason: String, _ hidden: Bool) {
+        if hidden { hiddenReasons.insert(reason) } else { hiddenReasons.remove(reason) }
+        let asleep = !hiddenReasons.isEmpty
+        if store.displayAsleep != asleep { store.displayAsleep = asleep }
+    }
+
+    /// While nobody can see the robot, it stops redrawing.
+    private func watchDisplayVisibility() {
+        let ws = NSWorkspace.shared.notificationCenter
+        let events: [(Notification.Name, String, Bool)] = [
+            (NSWorkspace.screensDidSleepNotification, "sleep", true), (NSWorkspace.screensDidWakeNotification, "sleep", false),
+            (NSWorkspace.sessionDidResignActiveNotification, "session", true), (NSWorkspace.sessionDidBecomeActiveNotification, "session", false),
+        ]
+        for (name, reason, hidden) in events {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setHidden(reason, hidden) }
+            }
+        }
+        for (name, hidden) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setHidden("lock", hidden) }
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         ensureDirs()
+        watchDisplayVisibility()
         let prefs = readJSON(prefsFile) ?? [:]
         store.muted = prefs["mudo"] as? Bool ?? false
         hiddenScreens = Set(prefs["ocultas"] as? [String] ?? [])
@@ -1250,7 +1321,7 @@ struct PillView: View {
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
-                                  bandaged: store.bandaged, revivingUntil: store.revivingUntil)
+                                  bandaged: store.bandaged, revivingUntil: store.revivingUntil, paused: store.displayAsleep)
                             .frame(width: geo.isOpen ? 42 : 29, height: geo.isOpen ? 32 : 22)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
@@ -1275,7 +1346,7 @@ struct PillView: View {
             .overlay {
                 if store.color == .red {
                     // Panic: a red edge pulses around the notch.
-                    TimelineView(.animation) { ctx in
+                    TimelineView(FrameSchedule(interval: 1.0 / 30.0, paused: store.displayAsleep)) { ctx in
                         let t = ctx.date.timeIntervalSinceReferenceDate
                         UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius)
                             .strokeBorder(Color(hex: 0xE24B4A), lineWidth: 1.75)
@@ -1341,12 +1412,15 @@ struct RobotView: View {
     var bandaged = false
     /// Until when a burnt Psiu is shaking off the soot (0.8 s).
     var revivingUntil: Date? = nil
+    /// Nobody can see the robot: stop redrawing it.
+    var paused = false
 
     /// Room around the grid, so smoke and soot can leave the head without being cut.
     private let margin: CGFloat = 8
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
+        TimelineView(FrameSchedule(interval: frameInterval(color, reviving: revivingUntil != nil), paused: paused,
+                                   changes: color == .dimGreen && revivingUntil == nil ? dimGreenBlink : nil)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let left = revivingUntil.map { $0.timeIntervalSince(ctx.date) } ?? 0
             let revival = left > 0 && left <= 0.8 ? 1 - left / 0.8 : nil
@@ -1358,6 +1432,55 @@ struct RobotView: View {
             .padding(-margin)
         }
         .aspectRatio(60.0 / 46.0, contentMode: .fit)
+    }
+}
+
+/// Redraws at a fixed rate driven by a timer. The display-driven .animation schedule keeps the whole
+/// update cycle running at the screen's refresh rate even with a minimum interval; this one only wakes
+/// up for the frames it draws, and not at all while paused.
+struct FrameSchedule: TimelineSchedule {
+    let interval: Double
+    let paused: Bool
+    /// When set, frames only where the drawing changes: these offsets (in seconds) within each period,
+    /// counted like the robot's clock. Above a few frames a second the render loop stays busy all the time,
+    /// so a robot that is still most of the time is much cheaper drawn this way.
+    var changes: (period: Double, offsets: [Double])? = nil
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        if paused {   // one frame, then nothing until it resumes
+            var done = false
+            return AnyIterator { defer { done = true }; return done ? nil : startDate }
+        }
+        if let changes {
+            var first = true
+            let start = startDate.timeIntervalSinceReferenceDate
+            var cycle = (start / changes.period).rounded(.down)
+            var index = 0
+            return AnyIterator {
+                if first { first = false; return startDate }
+                while true {
+                    let t = (cycle * changes.period + changes.offsets[index]).nextUp
+                    index += 1
+                    if index == changes.offsets.count { index = 0; cycle += 1 }
+                    if t > start { return Date(timeIntervalSinceReferenceDate: t) }
+                }
+            }
+        }
+        var next = startDate
+        return AnyIterator { defer { next = next.addingTimeInterval(interval) }; return next }
+    }
+}
+
+/// Dim green only changes when it blinks: between 90% and 96% of every 5 s (see drawRobot).
+private let dimGreenBlink = (period: 5.0, offsets: [4.5, 4.8])
+
+/// How often the robot is redrawn: fast gestures need 30 frames a second, slow ones far fewer.
+private func frameInterval(_ color: RobotColor, reviving: Bool) -> Double {
+    if reviving { return 1.0 / 60.0 }   // the soot shake runs at 10 Hz
+    switch color {
+    case .red, .yellow, .blue: return 1.0 / 30.0
+    case .green, .backgroundBlue, .burnt: return 1.0 / 20.0
+    case .dimGreen, .gray: return 1.0 / 10.0
     }
 }
 
@@ -1639,16 +1762,23 @@ func formatDuration(_ seconds: Double) -> String {
     return "\(Int(seconds)) s"
 }
 
-func shortTime(_ epoch: Double, _ format: String = "HH'h'mm") -> String {
-    let f = DateFormatter()
-    if isPortuguese {
-        f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = format
-    } else {
-        // English with the region's conventions (12 or 24 hours).
-        f.locale = Locale(identifier: "en_" + (Locale.current.region?.identifier ?? "US"))
-        f.setLocalizedDateFormatFromTemplate(format.contains("EEE") ? "EEEjmm" : "jmm")
-    }
+/// One formatter per format, made once: creating a DateFormatter on every redraw of the panel is costly.
+@MainActor private var shortTimeFormatters: [String: DateFormatter] = [:]
+
+@MainActor func shortTime(_ epoch: Double, _ format: String = "HH'h'mm") -> String {
+    let f = shortTimeFormatters[format] ?? {
+        let f = DateFormatter()
+        if isPortuguese {
+            f.locale = Locale(identifier: "pt_BR")
+            f.dateFormat = format
+        } else {
+            // English with the region's conventions (12 or 24 hours).
+            f.locale = Locale(identifier: "en_" + (Locale.current.region?.identifier ?? "US"))
+            f.setLocalizedDateFormatFromTemplate(format.contains("EEE") ? "EEEjmm" : "jmm")
+        }
+        shortTimeFormatters[format] = f
+        return f
+    }()
     return f.string(from: Date(timeIntervalSince1970: epoch))
 }
 
