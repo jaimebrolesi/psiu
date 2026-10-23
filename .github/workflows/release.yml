@@ -66,4 +66,5 @@ jobs:
 
       - name: Dry run summary
         if: env.DRY_RUN == 'true'
-        run: echo "Dry run: built, verified and tested $TAG. Nothing was published."
+        run: |
+          echo "Dry run: built, verified and tested $TAG. Nothing was published."
