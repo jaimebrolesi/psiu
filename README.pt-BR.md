@@ -88,7 +88,7 @@ Requisitos: macOS 14 (Sonoma) ou mais novo, e o Claude Code. Os números de uso 
 
 ```bash
 xcode-select --install   # uma vez, para ter o compilador Swift
-bash gerar-dmg.sh         # gera o Psiu.app e o Psiu.dmg nesta pasta
+bash build-dmg.sh         # gera o Psiu.app e o Psiu.dmg nesta pasta
 ```
 
 Tudo fica num único arquivo, `Psiu.swift`, sem dependências.

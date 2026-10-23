@@ -1,76 +1,76 @@
 #!/bin/bash
-# Simula duas sessões fictícias do Claude Code para gravar a demonstração do Psiu.
-# Usa nomes inventados (api, site). Guarda e restaura os seus limites do plano no fim.
-# O placar de hoje ganha cerca de um minuto da demonstração.
+# Simulates two made-up Claude Code sessions to record the Psiu demo.
+# Uses invented names (api, site). Saves and restores your plan limits at the end.
+# Today's scoreboard gains about a minute from the demo.
 set -euo pipefail
 
 P="/Applications/Psiu.app/Contents/MacOS/Psiu"
-[ -x "$P" ] || { echo "Instale o Psiu em Aplicativos antes de rodar a demonstração."; exit 1; }
+[ -x "$P" ] || { echo "Install Psiu in Applications before running the demo."; exit 1; }
 
 D="$HOME/.psiu"
-copia="$(mktemp -d)"
-[ -f "$D/limits.json" ] && cp "$D/limits.json" "$copia/"
-restaurar() {
-  rm -f "$D/demo-painel"
+backup="$(mktemp -d)"
+[ -f "$D/limits.json" ] && cp "$D/limits.json" "$backup/"
+restore() {
+  rm -f "$D/demo-panel"
   for s in demo-api demo-site; do
     printf '{"session_id":"%s","hook_event_name":"SessionEnd"}' "$s" | "$P" hook
   done
-  if [ -f "$copia/limits.json" ]; then cp "$copia/limits.json" "$D/limits.json"; else rm -f "$D/limits.json"; fi
-  rm -rf "$copia"
+  if [ -f "$backup/limits.json" ]; then cp "$backup/limits.json" "$D/limits.json"; else rm -f "$D/limits.json"; fi
+  rm -rf "$backup"
 }
-trap restaurar EXIT
+trap restore EXIT
 
-# Textos fictícios no idioma da gravação (o gravar-demo.sh passa PSIU_DEMO_IDIOMA).
-if [ "${PSIU_DEMO_IDIOMA:-pt}" = en ]; then
-  pedido_api="Update the install guide"; fim_api="Guide updated and tests passing."
-  pedido_site="Review the checkout"; fim_site="Review done; the long test is still running."
+# Made-up texts in the recording's language (record-demo.sh passes PSIU_DEMO_LANG).
+if [ "${PSIU_DEMO_LANG:-pt}" = en ]; then
+  api_prompt="Update the install guide"; api_reply="Guide updated and tests passing."
+  site_prompt="Review the checkout"; site_reply="Review done; the long test is still running."
 else
-  pedido_api="Atualize o guia de instalação"; fim_api="Guia atualizado e testes passando."
-  pedido_site="Revise o checkout"; fim_site="Revisão pronta; o teste longo segue rodando."
+  api_prompt="Atualize o guia de instalação"; api_reply="Guia atualizado e testes passando."
+  site_prompt="Revise o checkout"; site_reply="Revisão pronta; o teste longo segue rodando."
 fi
 
 ev() { printf '%s' "$1" | "$P" hook; }
 st() { printf '%s' "$1" | "$P" statusline >/dev/null; }
-passo() { echo; echo "▸ $1"; sleep "$2"; }
+step() { echo; echo "▸ $1"; sleep "$2"; }
 
-agora=$(date +%s)
-cinco=$((agora + 3 * 3600))
-semana=$((agora + 4 * 86400))
-limites="\"rate_limits\":{\"five_hour\":{\"used_percentage\":38,\"resets_at\":$cinco},\"seven_day\":{\"used_percentage\":22,\"resets_at\":$semana}}"
+now=$(date +%s)
+five_hour=$((now + 3 * 3600))
+week=$((now + 4 * 86400))
+limits="\"rate_limits\":{\"five_hour\":{\"used_percentage\":38,\"resets_at\":$five_hour},\"seven_day\":{\"used_percentage\":22,\"resets_at\":$week}}"
 
-echo "Demonstração do Psiu."
-passo "Nenhuma sessão: o Psiu está dormindo." 4
+echo "Psiu demo."
+step "No sessions: Psiu is asleep." 4
 
 ev '{"session_id":"demo-api","hook_event_name":"SessionStart","cwd":"/tmp/api"}'
-ev '{"session_id":"demo-api","hook_event_name":"UserPromptSubmit","cwd":"/tmp/api","prompt":"'"$pedido_api"'"}'
-st "{\"session_id\":\"demo-api\",\"workspace\":{\"project_dir\":\"/tmp/api\"},\"context_window\":{\"used_percentage\":41},$limites}"
-passo "Sessão api trabalhando: azul, olhos varrendo." 5
+ev '{"session_id":"demo-api","hook_event_name":"UserPromptSubmit","cwd":"/tmp/api","prompt":"'"$api_prompt"'"}'
+st "{\"session_id\":\"demo-api\",\"workspace\":{\"project_dir\":\"/tmp/api\"},\"context_window\":{\"used_percentage\":41},$limits}"
+step "Session api working: blue, eyes scanning." 5
 
 ev '{"session_id":"demo-api","hook_event_name":"PermissionRequest","cwd":"/tmp/api","tool_name":"Bash","tool_input":{"command":"npm install"}}'
-passo "Pedido de permissão: amarelo, com som." 3
-touch "$D/demo-painel"
-passo "O notch se estica e mostra o resumo do pedido." 5
-rm -f "$D/demo-painel"
+step "Permission request: yellow, with a sound." 3
+touch "$D/demo-panel"
+step "The notch stretches and shows the request summary." 5
+rm -f "$D/demo-panel"
 sleep 1
 
 ev '{"session_id":"demo-api","hook_event_name":"PostToolUse","cwd":"/tmp/api"}'
-passo "Permissão dada (simulada): volta ao azul." 4
+step "Permission granted (simulated): back to blue." 4
 
-ev '{"session_id":"demo-api","hook_event_name":"Stop","cwd":"/tmp/api","last_assistant_message":"'"$fim_api"'","background_tasks":[]}'
-passo "Terminou: verde sorrindo, com som." 6
+ev '{"session_id":"demo-api","hook_event_name":"Stop","cwd":"/tmp/api","last_assistant_message":"'"$api_reply"'","background_tasks":[]}'
+step "Done: green and smiling, with a sound." 6
 
 ev '{"session_id":"demo-site","hook_event_name":"SessionStart","cwd":"/tmp/site"}'
-ev '{"session_id":"demo-site","hook_event_name":"UserPromptSubmit","cwd":"/tmp/site","prompt":"'"$pedido_site"'"}'
-st "{\"session_id\":\"demo-site\",\"workspace\":{\"project_dir\":\"/tmp/site\"},\"context_window\":{\"used_percentage\":86},$limites}"
-passo "Segunda sessão com contexto alto: robô cansado, ponto vermelho, e o ponto verde da api que você não viu." 7
+ev '{"session_id":"demo-site","hook_event_name":"UserPromptSubmit","cwd":"/tmp/site","prompt":"'"$site_prompt"'"}'
+st "{\"session_id\":\"demo-site\",\"workspace\":{\"project_dir\":\"/tmp/site\"},\"context_window\":{\"used_percentage\":86},$limits}"
+step "Second session with high context: tired robot, red dot, and the green dot for api that you haven't seen." 7
 
-ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$fim_site"'","background_tasks":[{"type":"shell","status":"running"}]}'
-passo "Turno acabou, mas há um shell em segundo plano: o Psiu afunda no notch e espia." 6
+ev '{"session_id":"demo-site","hook_event_name":"Stop","cwd":"/tmp/site","last_assistant_message":"'"$site_reply"'","background_tasks":[{"type":"shell","status":"running"}]}'
+step "The turn ended, but a shell is running in the background: Psiu sinks into the notch and peeks." 6
 
-touch "$D/demo-painel"
-passo "O painel com as duas sessões, a previsão e o placar do dia." 7
-rm -f "$D/demo-painel"
+touch "$D/demo-panel"
+step "The panel with both sessions, the forecast and today's scoreboard." 7
+rm -f "$D/demo-panel"
 sleep 2
 
 echo
-echo "Fim. Encerrando as sessões fictícias e restaurando seus limites."
+echo "End. Closing the made-up sessions and restoring your limits."

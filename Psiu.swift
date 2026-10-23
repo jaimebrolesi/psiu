@@ -1,18 +1,23 @@
-// Psiu: robozinho que mostra o estado das sessões do Claude Code no notch do Mac.
-// Um único binário com quatro modos:
-//   Psiu               abre o robozinho no notch (app de barra, sem ícone no Dock)
-//   Psiu hook          recebe os eventos do Claude Code (chamado pelos hooks)
-//   Psiu statusline    recebe contexto e limites do plano (chamado pela status line)
-//   Psiu install / uninstall   liga ou desliga o Psiu no ~/.claude/settings.json
-//   Psiu icone <png>   desenha o ícone do app (usado pelo gerar-dmg.sh)
-// Não acessa a internet, não lê token nem senha. Tudo fica em ~/.psiu.
+// Psiu: a tiny robot in the Mac's notch that shows the state of your Claude Code sessions.
+// One binary with several modes:
+//   Psiu               opens the robot in the notch (menu bar app, no Dock icon)
+//   Psiu hook          receives Claude Code events (called by the hooks)
+//   Psiu statusline    receives context and plan limits (called by the status line)
+//   Psiu install / uninstall   adds or removes Psiu in ~/.claude/settings.json
+//   Psiu setup         connects Psiu without a window: migrates Farol, writes hooks and status line, opens at login
+//   Psiu icon <png>    draws the app icon (used by build-dmg.sh)
+//   Psiu dmg-background <dir>   draws the installer background (used by build-dmg.sh)
+// The Portuguese mode names of earlier versions (configurar, icone, fundo-dmg) still work.
+// No internet access, never reads tokens or passwords. Everything stays in ~/.psiu.
 
 import AppKit
 import SwiftUI
 import ServiceManagement
 
-// MARK: - Caminhos e utilitários
+// MARK: - Paths and utilities
 
+// Names on disk (placar.json, statusline-anterior.txt and keys such as "mudo" or "resumo") stay in Portuguese,
+// as in earlier versions and in Farol, so existing installs keep their scoreboard, preferences and sessions.
 let fm = FileManager.default
 let home = ProcessInfo.processInfo.environment["HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? fm.homeDirectoryForCurrentUser
 let baseDir = home.appendingPathComponent(".psiu")
@@ -20,20 +25,20 @@ let sessionsDir = baseDir.appendingPathComponent("sessions")
 let limitsFile = baseDir.appendingPathComponent("limits.json")
 let prefsFile = baseDir.appendingPathComponent("prefs.json")
 let prevStatusFile = baseDir.appendingPathComponent("statusline-anterior.txt")
-/// O próprio executável: /Applications/Psiu.app/Contents/MacOS/Psiu depois de instalado.
+/// The executable itself: /Applications/Psiu.app/Contents/MacOS/Psiu once installed.
 let binPath = Bundle.main.executablePath ?? CommandLine.arguments[0]
 
-/// Português quando o primeiro idioma do macOS é o português do Brasil; inglês em qualquer outro caso.
-let emPortugues: Bool = {
+/// Portuguese when the Mac's first language is Brazilian Portuguese; English otherwise.
+let isPortuguese: Bool = {
     let l = Locale.preferredLanguages.first ?? ""
     return l == "pt" || l.hasPrefix("pt-BR")
 }()
 
-/// Escolhe o texto no idioma do sistema.
-func tr(_ pt: String, _ en: String) -> String { emPortugues ? pt : en }
+/// Picks the text in the system language.
+func tr(_ pt: String, _ en: String) -> String { isPortuguese ? pt : en }
 
-/// Reconhece comandos do Psiu e do Farol (a versão anterior), para trocar um pelo outro sem duplicar.
-func ehDoPsiu(_ cmd: String) -> Bool {
+/// Recognizes Psiu and Farol (the previous version) commands, to swap one for the other without duplicates.
+func isPsiuCommand(_ cmd: String) -> Bool {
     cmd.contains("/Psiu.app/Contents/MacOS/Psiu") || cmd.contains("/.farol/bin/Farol")
 }
 
@@ -59,36 +64,36 @@ func safeID(_ s: String) -> String {
     String(s.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" })
 }
 
-// MARK: - Modo hook: estado de cada sessão
+// MARK: - Hook mode: state of each session
 
-/// Junta espaços e quebras de linha e corta no tamanho pedido.
-func limpar(_ texto: String, _ max: Int) -> String {
-    let uma = texto.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
-    return uma.count > max ? String(uma.prefix(max)) + "…" : uma
+/// Collapses spaces and line breaks and truncates to the given length.
+func condense(_ text: String, _ max: Int) -> String {
+    let singleLine = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+    return singleLine.count > max ? String(singleLine.prefix(max)) + "…" : singleLine
 }
 
-/// Último trecho útil de uma resposta: a última linha com texto, sem marcação.
-func ultimoTrecho(_ msg: String) -> String {
-    let linhas = msg.components(separatedBy: .newlines)
+/// Last useful bit of a reply: the last line with text, without markup.
+func lastSnippet(_ msg: String) -> String {
+    let lines = msg.components(separatedBy: .newlines)
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty && !$0.hasPrefix("```") && $0 != "---" }
-    var ultima = linhas.last ?? ""
-    ultima = ultima.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-    while let c = ultima.first, "#*->|".contains(c) { ultima.removeFirst(); ultima = ultima.trimmingCharacters(in: .whitespaces) }
-    return limpar(ultima, 220)
+    var lastLine = lines.last ?? ""
+    lastLine = lastLine.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+    while let c = lastLine.first, "#*->|".contains(c) { lastLine.removeFirst(); lastLine = lastLine.trimmingCharacters(in: .whitespaces) }
+    return condense(lastLine, 220)
 }
 
-/// Terminal de onde a sessão roda (ex.: /dev/ttys003), para o clique trazer a janela certa.
-func ttyAtual() -> String? {
+/// Terminal the session runs in (e.g. /dev/ttys003), so a click brings up the right window.
+func currentTTY() -> String? {
     for pid in [getpid(), getppid()] {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/ps")
         p.arguments = ["-o", "tty=", "-p", "\(pid)"]
-        let saida = Pipe()
-        p.standardOutput = saida
+        let outPipe = Pipe()
+        p.standardOutput = outPipe
         p.standardError = FileHandle.nullDevice
         guard (try? p.run()) != nil else { continue }
-        let d = saida.fileHandleForReading.readDataToEndOfFile()
+        let d = outPipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         let t = (String(data: d, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty && !t.hasPrefix("?") { return t.hasPrefix("/dev/") ? t : "/dev/" + t }
@@ -121,75 +126,75 @@ func runHook() {
         let env = ProcessInfo.processInfo.environment
         rec["bundle"] = env["__CFBundleIdentifier"]
         rec["termprog"] = env["TERM_PROGRAM"]
-        rec["tty"] = ttyAtual() ?? ""
+        rec["tty"] = currentTTY() ?? ""
     }
-    let estadoAntes = rec["state"] as? String
+    let previousState = rec["state"] as? String
 
-    var novo: String?
+    var newState: String?
     switch event {
     case "SessionStart":
-        novo = "idle"
+        newState = "idle"
     case "UserPromptSubmit":
-        novo = "running"
-        let pedido = input["prompt"] as? String ?? ""
-        rec["resumo"] = pedido.hasPrefix("<")
+        newState = "running"
+        let prompt = input["prompt"] as? String ?? ""
+        rec["resumo"] = prompt.hasPrefix("<")
             ? tr("Retomou depois de uma tarefa em segundo plano.", "Resumed after a background task.")
-            : tr("Pedido: ", "Prompt: ") + limpar(pedido, 140)
+            : tr("Pedido: ", "Prompt: ") + condense(prompt, 140)
     case "PreToolUse", "PostToolUse":
-        novo = "running"
+        newState = "running"
     case "PermissionRequest":
-        novo = "awaiting"
-        let ferramenta = input["tool_name"] as? String ?? tr("uma ferramenta", "a tool")
+        newState = "awaiting"
+        let tool = input["tool_name"] as? String ?? tr("uma ferramenta", "a tool")
         if let cmd = (input["tool_input"] as? [String: Any])?["command"] as? String {
-            rec["resumo"] = tr("Quer permissão para \(ferramenta): ", "Wants permission for \(ferramenta): ") + limpar(cmd, 90)
+            rec["resumo"] = tr("Quer permissão para \(tool): ", "Wants permission for \(tool): ") + condense(cmd, 90)
         } else {
-            rec["resumo"] = tr("Quer permissão para usar \(ferramenta).", "Wants permission to use \(ferramenta).")
+            rec["resumo"] = tr("Quer permissão para usar \(tool).", "Wants permission to use \(tool).")
         }
     case "Notification":
-        let tipo = input["notification_type"] as? String ?? ""
+        let kind = input["notification_type"] as? String ?? ""
         let msg = (input["message"] as? String ?? "").lowercased()
-        if tipo == "permission_prompt" || tipo == "elicitation_dialog" || msg.contains("permission") {
-            novo = "awaiting"
-            if estadoAntes != "awaiting", let m = input["message"] as? String { rec["resumo"] = limpar(m, 140) }
-        } else if tipo == "idle_prompt", rec["state"] as? String == "running" {
-            // Você interrompeu com Esc: o Stop não dispara, então o idle corrige o azul preso.
-            novo = "idle"
+        if kind == "permission_prompt" || kind == "elicitation_dialog" || msg.contains("permission") {
+            newState = "awaiting"
+            if previousState != "awaiting", let m = input["message"] as? String { rec["resumo"] = condense(m, 140) }
+        } else if kind == "idle_prompt", rec["state"] as? String == "running" {
+            // You interrupted with Esc: Stop doesn't fire, so idle fixes the stuck blue.
+            newState = "idle"
         }
     case "Stop":
-        if let m = input["last_assistant_message"] as? String, !m.isEmpty { rec["resumo"] = ultimoTrecho(m) }
-        // O Stop traz as tarefas ainda rodando (shells, monitores, subagentes).
-        let tarefas = (input["background_tasks"] as? [[String: Any]] ?? []).filter {
+        if let m = input["last_assistant_message"] as? String, !m.isEmpty { rec["resumo"] = lastSnippet(m) }
+        // Stop lists the tasks still running (shells, monitors, subagents).
+        let tasks = (input["background_tasks"] as? [[String: Any]] ?? []).filter {
             let st = $0["status"] as? String ?? "running"
             return st == "running" || st == "pending"
         }
-        if tarefas.isEmpty {
-            novo = "done"
+        if tasks.isEmpty {
+            newState = "done"
             rec["bg"] = nil
         } else {
-            novo = "background"
-            var ordem: [String] = []
-            var contagem: [String: Int] = [:]
-            for t in tarefas {
-                let tipo = t["type"] as? String ?? tr("tarefa", "task")
-                if contagem[tipo] == nil { ordem.append(tipo) }
-                contagem[tipo, default: 0] += 1
+            newState = "background"
+            var order: [String] = []
+            var counts: [String: Int] = [:]
+            for t in tasks {
+                let kind = t["type"] as? String ?? tr("tarefa", "task")
+                if counts[kind] == nil { order.append(kind) }
+                counts[kind, default: 0] += 1
             }
-            rec["bg"] = ordem.map { "\(contagem[$0] ?? 0) \($0)" }.joined(separator: ", ")
+            rec["bg"] = order.map { "\(counts[$0] ?? 0) \($0)" }.joined(separator: ", ")
         }
     default:
         break
     }
 
-    if let s = novo {
+    if let s = newState {
         if rec["state"] as? String != s { rec["since"] = now }
         rec["state"] = s
     }
     rec["updated"] = now
     writeJSON(rec, to: file)
-    // Nada no stdout: no UserPromptSubmit, o que sai aqui entraria no contexto do Claude.
+    // Nothing on stdout: on UserPromptSubmit, anything printed here would go into Claude's context.
 }
 
-// MARK: - Modo statusline: contexto e limites do plano
+// MARK: - Statusline mode: context and plan limits
 
 func runStatusLine() {
     ensureDirs()
@@ -199,7 +204,7 @@ func runStatusLine() {
 
     let cw = input["context_window"] as? [String: Any]
     let ctx = num(cw?["used_percentage"])
-    var partes: [String] = []
+    var parts: [String] = []
 
     if let rawID = input["session_id"] as? String {
         var m: [String: Any] = ["updated": now]
@@ -210,45 +215,45 @@ func runStatusLine() {
         }
         writeJSON(m, to: sessionsDir.appendingPathComponent("\(safeID(rawID)).metrics.json"))
     }
-    if let ctx { partes.append(tr("contexto", "context") + " \(Int(ctx.rounded()))%") }
+    if let ctx { parts.append(tr("contexto", "context") + " \(Int(ctx.rounded()))%") }
 
     if let rl = input["rate_limits"] as? [String: Any] {
-        var lim = readJSON(limitsFile) ?? [:]
-        for (chave, rotulo) in [("five_hour", "5h"), ("seven_day", tr("semana", "week"))] {
-            guard let w = rl[chave] as? [String: Any], let p = num(w["used_percentage"]) else { continue }
-            lim[chave] = ["pct": p, "resets": num(w["resets_at"]) ?? 0]
-            partes.append("\(rotulo) \(Int(p.rounded()))%")
+        var limits = readJSON(limitsFile) ?? [:]
+        for (limitKey, label) in [("five_hour", "5h"), ("seven_day", tr("semana", "week"))] {
+            guard let w = rl[limitKey] as? [String: Any], let p = num(w["used_percentage"]) else { continue }
+            limits[limitKey] = ["pct": p, "resets": num(w["resets_at"]) ?? 0]
+            parts.append("\(label) \(Int(p.rounded()))%")
         }
-        lim["updated"] = now
-        writeJSON(lim, to: limitsFile)
+        limits["updated"] = now
+        writeJSON(limits, to: limitsFile)
     }
 
-    // Se você já tinha uma status line, ela continua aparecendo no lugar da do Psiu.
+    // If you already had a status line, it keeps showing in place of Psiu's.
     if let prev = try? String(contentsOf: prevStatusFile, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines), !prev.isEmpty {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", prev]
-        let entrada = Pipe(), saida = Pipe()
-        p.standardInput = entrada
-        p.standardOutput = saida
+        let inPipe = Pipe(), outPipe = Pipe()
+        p.standardInput = inPipe
+        p.standardOutput = outPipe
         if (try? p.run()) != nil {
-            entrada.fileHandleForWriting.write(raw)
-            try? entrada.fileHandleForWriting.close()
-            let out = saida.fileHandleForReading.readDataToEndOfFile()
+            inPipe.fileHandleForWriting.write(raw)
+            try? inPipe.fileHandleForWriting.close()
+            let out = outPipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
             FileHandle.standardOutput.write(out)
             return
         }
     }
-    print(partes.joined(separator: " | "))
+    print(parts.joined(separator: " | "))
 }
 
-// MARK: - Instalar e desinstalar no settings.json do Claude Code
+// MARK: - Install and uninstall in Claude Code's settings.json
 
 let settingsURL = home.appendingPathComponent(".claude/settings.json")
 
-func carregarSettings() -> (dict: [String: Any], bruto: Data?) {
+func loadSettings() -> (dict: [String: Any], rawData: Data?) {
     guard let data = try? Data(contentsOf: settingsURL) else { return ([:], nil) }
     guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
         print(tr("O ~/.claude/settings.json não é um JSON válido. Nada foi alterado.", "~/.claude/settings.json is not valid JSON. Nothing was changed."))
@@ -257,31 +262,31 @@ func carregarSettings() -> (dict: [String: Any], bruto: Data?) {
     return (obj, data)
 }
 
-/// Guarda só o backup mais antigo: o settings.json de antes do Psiu (ou do Farol). Os demais são apagados.
+/// Keeps only the oldest backup: the settings.json from before Psiu (or Farol). The others are deleted.
 func backup(_ data: Data?) {
     guard let data else { return }
     let dir = settingsURL.deletingLastPathComponent()
-    let prefixo = "settings.json.psiu-backup-"
-    let carimbo: (String) -> Int = { Int($0.split(separator: "-").last ?? "") ?? 0 }
-    let existentes = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
-        .filter { $0.hasPrefix(prefixo) || $0.hasPrefix("settings.json.farol-backup-") }
-        .sorted { carimbo($0) < carimbo($1) }
-    if let original = existentes.first {
-        for nome in existentes.dropFirst() { try? fm.removeItem(at: dir.appendingPathComponent(nome)) }
-        if existentes.count > 1 { print(tr("Backups intermediários apagados: \(existentes.count - 1).", "Intermediate backups deleted: \(existentes.count - 1).")) }
+    let backupPrefix = "settings.json.psiu-backup-"
+    let timestamp: (String) -> Int = { Int($0.split(separator: "-").last ?? "") ?? 0 }
+    let backups = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
+        .filter { $0.hasPrefix(backupPrefix) || $0.hasPrefix("settings.json.farol-backup-") }
+        .sorted { timestamp($0) < timestamp($1) }
+    if let original = backups.first {
+        for name in backups.dropFirst() { try? fm.removeItem(at: dir.appendingPathComponent(name)) }
+        if backups.count > 1 { print(tr("Backups intermediários apagados: \(backups.count - 1).", "Intermediate backups deleted: \(backups.count - 1).")) }
         print(tr("Backup original preservado: \(dir.appendingPathComponent(original).path)", "Original backup kept: \(dir.appendingPathComponent(original).path)"))
         return
     }
-    let url = dir.appendingPathComponent("\(prefixo)\(Int(Date().timeIntervalSince1970))")
+    let url = dir.appendingPathComponent("\(backupPrefix)\(Int(Date().timeIntervalSince1970))")
     try? data.write(to: url)
     print(tr("Backup do settings.json: \(url.path)", "settings.json backup: \(url.path)"))
 }
 
-func semFarol(_ grupos: [[String: Any]]) -> [[String: Any]] {
-    grupos.compactMap { g in
+func removingPsiuHooks(_ groups: [[String: Any]]) -> [[String: Any]] {
+    groups.compactMap { g in
         var g = g
         let hs = (g["hooks"] as? [[String: Any]] ?? []).filter {
-            !ehDoPsiu($0["command"] as? String ?? "")
+            !isPsiuCommand($0["command"] as? String ?? "")
         }
         if hs.isEmpty { return nil }
         g["hooks"] = hs
@@ -289,7 +294,7 @@ func semFarol(_ grupos: [[String: Any]]) -> [[String: Any]] {
     }
 }
 
-let eventosFarol: [(String, String?)] = [
+let hookEvents: [(String, String?)] = [
     ("SessionStart", nil), ("UserPromptSubmit", nil),
     ("PreToolUse", "*"), ("PostToolUse", "*"), ("PermissionRequest", "*"),
     ("Notification", "*"), ("Stop", nil), ("SessionEnd", nil),
@@ -298,22 +303,22 @@ let eventosFarol: [(String, String?)] = [
 func runInstall() {
     ensureDirs()
     try? fm.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    var (settings, bruto) = carregarSettings()
-    backup(bruto)
+    var (settings, rawData) = loadSettings()
+    backup(rawData)
 
-    let cmdHook = "\"\(binPath)\" hook"
+    let hookCommand = "\"\(binPath)\" hook"
     var hooks = settings["hooks"] as? [String: Any] ?? [:]
-    for (evento, matcher) in eventosFarol {
-        var grupos = semFarol(hooks[evento] as? [[String: Any]] ?? [])
-        var g: [String: Any] = ["hooks": [["type": "command", "command": cmdHook]]]
+    for (eventName, matcher) in hookEvents {
+        var groups = removingPsiuHooks(hooks[eventName] as? [[String: Any]] ?? [])
+        var g: [String: Any] = ["hooks": [["type": "command", "command": hookCommand]]]
         if let matcher { g["matcher"] = matcher }
-        grupos.append(g)
-        hooks[evento] = grupos
+        groups.append(g)
+        hooks[eventName] = groups
     }
     settings["hooks"] = hooks
 
     var sl = settings["statusLine"] as? [String: Any] ?? [:]
-    if let cmd = sl["command"] as? String, !ehDoPsiu(cmd) {
+    if let cmd = sl["command"] as? String, !isPsiuCommand(cmd) {
         try? cmd.write(to: prevStatusFile, atomically: true, encoding: .utf8)
         print(tr("Sua status line anterior foi guardada e continua aparecendo no terminal.", "Your previous status line was saved and still shows in the terminal."))
     }
@@ -322,29 +327,29 @@ func runInstall() {
     settings["statusLine"] = sl
 
     writeJSON(settings, to: settingsURL, pretty: true)
-    print(tr("Hooks do Psiu: \(eventosFarol.map { $0.0 }.joined(separator: ", ")).", "Psiu hooks: \(eventosFarol.map { $0.0 }.joined(separator: ", "))."))
+    print(tr("Hooks do Psiu: \(hookEvents.map { $0.0 }.joined(separator: ", ")).", "Psiu hooks: \(hookEvents.map { $0.0 }.joined(separator: ", "))."))
     print(tr("Status line do Psiu instalada. Reinicie as sessões do Claude Code abertas.", "Psiu status line installed. Restart any open Claude Code sessions."))
 }
 
 func runUninstall() {
-    var (settings, bruto) = carregarSettings()
-    guard bruto != nil else { print(tr("Não há settings.json. Nada a desfazer.", "There is no settings.json. Nothing to undo.")); return }
-    backup(bruto)
+    var (settings, rawData) = loadSettings()
+    guard rawData != nil else { print(tr("Não há settings.json. Nada a desfazer.", "There is no settings.json. Nothing to undo.")); return }
+    backup(rawData)
 
     if var hooks = settings["hooks"] as? [String: Any] {
-        for (evento, _) in eventosFarol {
-            let grupos = semFarol(hooks[evento] as? [[String: Any]] ?? [])
-            hooks[evento] = grupos.isEmpty ? nil : grupos
+        for (eventName, _) in hookEvents {
+            let groups = removingPsiuHooks(hooks[eventName] as? [[String: Any]] ?? [])
+            hooks[eventName] = groups.isEmpty ? nil : groups
         }
         settings["hooks"] = hooks.isEmpty ? nil : hooks
     }
     if let sl = settings["statusLine"] as? [String: Any],
-       ehDoPsiu(sl["command"] as? String ?? "") {
+       isPsiuCommand(sl["command"] as? String ?? "") {
         if let prev = try? String(contentsOf: prevStatusFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines), !prev.isEmpty {
-            var novo = sl
-            novo["command"] = prev
-            settings["statusLine"] = novo
+            var newState = sl
+            newState["command"] = prev
+            settings["statusLine"] = newState
             print(tr("Sua status line anterior foi restaurada.", "Your previous status line was restored."))
         } else {
             settings["statusLine"] = nil
@@ -354,23 +359,23 @@ func runUninstall() {
     print(tr("Psiu removido do ~/.claude/settings.json.", "Psiu removed from ~/.claude/settings.json."))
 }
 
-// MARK: - Primeiro uso, login e migração do Farol
+// MARK: - First run, login and migration from Farol
 
-/// O Psiu já está ligado ao Claude Code por este executável?
-func psiuLigado() -> Bool {
+/// Is Psiu already connected to Claude Code through this executable?
+func isPsiuConnected() -> Bool {
     guard let data = try? Data(contentsOf: settingsURL),
           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
           let cmd = (obj["statusLine"] as? [String: Any])?["command"] as? String else { return false }
     return cmd.contains(binPath)
 }
 
-var temFarol: Bool {
+var hasFarol: Bool {
     fm.fileExists(atPath: home.appendingPathComponent(".farol").path)
         || fm.fileExists(atPath: home.appendingPathComponent("Library/LaunchAgents/com.farol.app.plist").path)
 }
 
-/// Desliga o Farol (versão anterior) e traz para o Psiu o placar, as preferências e a status line guardada.
-func migrarFarol() {
+/// Turns off Farol (the previous version) and brings its scoreboard, preferences and saved status line over to Psiu.
+func migrateFromFarol() {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
     p.arguments = ["bootout", "gui/\(getuid())/com.farol.app"]
@@ -378,23 +383,23 @@ func migrarFarol() {
     try? p.run()
     p.waitUntilExit()
     try? fm.removeItem(at: home.appendingPathComponent("Library/LaunchAgents/com.farol.app.plist"))
-    let velho = home.appendingPathComponent(".farol")
-    guard fm.fileExists(atPath: velho.path) else { return }
+    let farolDir = home.appendingPathComponent(".farol")
+    guard fm.fileExists(atPath: farolDir.path) else { return }
     ensureDirs()
-    for nome in ["placar.json", "prefs.json", "statusline-anterior.txt"] {
-        let de = velho.appendingPathComponent(nome), para = baseDir.appendingPathComponent(nome)
-        if fm.fileExists(atPath: de.path) && !fm.fileExists(atPath: para.path) { try? fm.copyItem(at: de, to: para) }
+    for name in ["placar.json", "prefs.json", "statusline-anterior.txt"] {
+        let src = farolDir.appendingPathComponent(name), dst = baseDir.appendingPathComponent(name)
+        if fm.fileExists(atPath: src.path) && !fm.fileExists(atPath: dst.path) { try? fm.copyItem(at: src, to: dst) }
     }
-    try? fm.removeItem(at: velho)
-    // Sessões do Claude Code abertas antes da troca ainda chamam ~/.farol/bin/Farol.
-    // Esse caminho passa a ser um atalho para o Psiu, então elas seguem funcionando até serem reiniciadas.
-    try? fm.createDirectory(at: velho.appendingPathComponent("bin"), withIntermediateDirectories: true)
-    try? fm.createSymbolicLink(atPath: velho.appendingPathComponent("bin/Farol").path, withDestinationPath: binPath)
+    try? fm.removeItem(at: farolDir)
+    // Claude Code sessions opened before the switch still call ~/.farol/bin/Farol.
+    // That path becomes a link to Psiu, so they keep working until they are restarted.
+    try? fm.createDirectory(at: farolDir.appendingPathComponent("bin"), withIntermediateDirectories: true)
+    try? fm.createSymbolicLink(atPath: farolDir.appendingPathComponent("bin/Farol").path, withDestinationPath: binPath)
 }
 
-/// Liga o Psiu sem janela: migra o Farol, grava hooks e status line e registra a abertura no login.
-func configurarSemJanela() {
-    migrarFarol()
+/// Connects Psiu without a window: migrates Farol, writes hooks and status line, and registers open at login.
+func setupWithoutWindow() {
+    migrateFromFarol()
     runInstall()
     do {
         try SMAppService.mainApp.register()
@@ -406,14 +411,14 @@ func configurarSemJanela() {
     }
 }
 
-/// Desenha o ícone do app (1024 px) com a cabeça do robô.
+/// Draws the app icon (1024 px) with the robot's head.
 @MainActor
-func gerarIcone(_ destino: String) {
+func renderIcon(_ outputPath: String) {
     let view = ZStack {
         RoundedRectangle(cornerRadius: 185, style: .continuous)
             .fill(Color(hex: 0x1C1C1E))
             .frame(width: 824, height: 824)
-        Canvas { g, size in desenharRobo(&g, size, .verde, false, 0) }
+        Canvas { g, size in drawRobot(&g, size, .green, false, 0) }
             .frame(width: 620, height: 475)
     }
     .frame(width: 1024, height: 1024)
@@ -424,14 +429,14 @@ func gerarIcone(_ destino: String) {
           let png = rep.representation(using: .png, properties: [:]) else {
         print(tr("Não consegui desenhar o ícone.", "Couldn't draw the icon.")); exit(1)
     }
-    try? png.write(to: URL(fileURLWithPath: destino))
+    try? png.write(to: URL(fileURLWithPath: outputPath))
 }
 
-/// Fundo da janela do instalador (.dmg): 640 x 400, com seta do app para Aplicativos. Bilíngue, porque é uma imagem só.
-struct FundoDMG: View {
-    // Centros dos ícones na janela, os mesmos que o gerar-dmg.sh usa no Finder.
+/// Installer (.dmg) window background: 640 x 400, with an arrow from the app to Applications. Bilingual, since it is a single image.
+struct DMGBackground: View {
+    // Icon centers in the window, the same ones build-dmg.sh uses in Finder.
     static let app = CGPoint(x: 170, y: 190)
-    static let pasta = CGPoint(x: 470, y: 190)
+    static let folder = CGPoint(x: 470, y: 190)
 
     var body: some View {
         ZStack {
@@ -440,7 +445,7 @@ struct FundoDMG: View {
                            center: UnitPoint(x: 0.5, y: 0.48), startRadius: 10, endRadius: 380)
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
-                    Canvas { g, size in desenharRobo(&g, size, .verde, false, 0) }
+                    Canvas { g, size in drawRobot(&g, size, .green, false, 0) }
                         .frame(width: 34, height: 26)
                     Text("Psiu").font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
                 }
@@ -449,13 +454,13 @@ struct FundoDMG: View {
                     .multilineTextAlignment(.center).lineSpacing(2)
             }
             .position(x: 320, y: 64)
-            // Sobre a imagem de fundo o Finder escreve os nomes dos ícones sempre em preto, até no modo escuro:
-            // uma etiqueta clara atrás de cada nome mantém a leitura.
-            etiqueta(58).position(x: Self.app.x, y: 265)
-            etiqueta(98).position(x: Self.pasta.x, y: 265)
-            curva.stroke(Color(hex: 0x97C459),
+            // Over a background picture Finder always draws icon names in black, even in dark mode:
+            // a light plate behind each name keeps them readable.
+            labelPlate(58).position(x: Self.app.x, y: 265)
+            labelPlate(98).position(x: Self.folder.x, y: 265)
+            curve.stroke(Color(hex: 0x97C459),
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [0.1, 9]))
-            ponta.stroke(Color(hex: 0x97C459),
+            arrowhead.stroke(Color(hex: 0x97C459),
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             Text("Arraste o Psiu para Aplicativos\nDrag Psiu to Applications")
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(Color.white.opacity(0.6))
@@ -465,306 +470,306 @@ struct FundoDMG: View {
         .frame(width: 640, height: 400)
     }
 
-    func etiqueta(_ largura: CGFloat) -> some View {
-        Capsule().fill(Color(hex: 0xE4E7EC)).frame(width: largura, height: 22)
+    func labelPlate(_ plateWidth: CGFloat) -> some View {
+        Capsule().fill(Color(hex: 0xE4E7EC)).frame(width: plateWidth, height: 22)
     }
 
-    private let inicio = CGPoint(x: 252, y: 192)
-    private let fim = CGPoint(x: 388, y: 192)
-    private let controle = CGPoint(x: 320, y: 150)
+    private let startPoint = CGPoint(x: 252, y: 192)
+    private let endPoint = CGPoint(x: 388, y: 192)
+    private let controlPoint = CGPoint(x: 320, y: 150)
 
-    var curva: Path {
+    var curve: Path {
         var p = Path()
-        p.move(to: inicio)
-        p.addQuadCurve(to: fim, control: controle)
+        p.move(to: startPoint)
+        p.addQuadCurve(to: endPoint, control: controlPoint)
         return p
     }
 
-    var ponta: Path {
-        let ang = atan2(fim.y - controle.y, fim.x - controle.x)
+    var arrowhead: Path {
+        let angle = atan2(endPoint.y - controlPoint.y, endPoint.x - controlPoint.x)
         var p = Path()
-        for desvio in [CGFloat.pi * 0.82, -CGFloat.pi * 0.82] {
-            p.move(to: fim)
-            p.addLine(to: CGPoint(x: fim.x + 13 * cos(ang + desvio), y: fim.y + 13 * sin(ang + desvio)))
+        for spread in [CGFloat.pi * 0.82, -CGFloat.pi * 0.82] {
+            p.move(to: endPoint)
+            p.addLine(to: CGPoint(x: endPoint.x + 13 * cos(angle + spread), y: endPoint.y + 13 * sin(angle + spread)))
         }
         return p
     }
 }
 
-/// Salva o fundo do .dmg em 1x e 2x (o gerar-dmg.sh junta os dois num .tiff para telas Retina).
+/// Saves the .dmg background at 1x and 2x (build-dmg.sh merges both into a .tiff for Retina screens).
 @MainActor
-func gerarFundoDMG(_ pasta: String) {
-    for (escala, nome) in [(CGFloat(1), "fundo.png"), (CGFloat(2), "fundo@2x.png")] {
-        let r = ImageRenderer(content: FundoDMG())
-        r.scale = escala
+func renderDMGBackground(_ folder: String) {
+    for (pixelScale, name) in [(CGFloat(1), "background.png"), (CGFloat(2), "background@2x.png")] {
+        let r = ImageRenderer(content: DMGBackground())
+        r.scale = pixelScale
         guard let img = r.nsImage, let tiff = img.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
             print(tr("Não consegui desenhar o fundo do instalador.", "Couldn't draw the installer background.")); exit(1)
         }
-        try? png.write(to: URL(fileURLWithPath: pasta).appendingPathComponent(nome))
+        try? png.write(to: URL(fileURLWithPath: folder).appendingPathComponent(name))
     }
 }
 
-// MARK: - Modelo do sinaleiro
+// MARK: - Signal model
 
-enum Estado: String { case idle, running, background, awaiting, done }
+enum SessionState: String { case idle, running, background, awaiting, done }
 
-enum Cor { case amarelo, azul, azulFundo, verde, verdeApagado, cinza }
+enum RobotColor { case yellow, blue, backgroundBlue, green, dimGreen, gray }
 
-struct Sessao: Identifiable, Equatable {
+struct Session: Identifiable, Equatable {
     let id: String
-    var projeto: String
-    var estado: Estado
-    var desde: Double
-    var atualizado: Double
+    var project: String
+    var state: SessionState
+    var since: Double
+    var updated: Double
     var ctx: Double?
-    var modelo: String?
+    var model: String?
     var bg: String?
-    var resumo: String?
+    var summary: String?
     var tty: String?
     var bundle: String?
     var termprog: String?
 }
 
-struct Placar: Equatable {
-    var trab: Double = 0      // segundos com algum agente trabalhando
-    var esp: Double = 0       // segundos com alguma sessão esperando você
-    var nResp: Int = 0        // quantas vezes você respondeu
-    var tResp: Double = 0     // soma dos tempos até responder
+struct Scoreboard: Equatable {
+    var working: Double = 0     // seconds with some agent working
+    var waiting: Double = 0     // seconds with some session waiting for you
+    var replyCount: Int = 0     // how many times you replied
+    var replyTime: Double = 0   // sum of the times until you replied
 }
 
-let placarFile = baseDir.appendingPathComponent("placar.json")
+let scoreboardFile = baseDir.appendingPathComponent("placar.json")
 
-struct Janela: Equatable {
+struct UsageWindow: Equatable {
     var pct: Double
-    var reinicia: Double
+    var resetsAt: Double
 }
 
-// Ajuste aqui os sons e os intervalos de lembrete.
-enum Sons {
-    static let permissao = "Submarine"
-    static let terminou = "Glass"
-    static let lembretePermissaoSeg: TimeInterval = 120   // repete enquanto espera você
-    static let maxLembretesPermissao = 15                 // no máximo 30 min tocando
-    static let lembreteTerminouSeg: TimeInterval = 180    // um lembrete extra se você não voltou
+// Tune the sounds and reminder intervals here.
+enum Sounds {
+    static let permission = "Submarine"
+    static let finished = "Glass"
+    static let permissionReminderInterval: TimeInterval = 120   // repeats while it waits for you
+    static let maxPermissionReminders = 15                      // at most 30 min of sounds
+    static let finishedReminderInterval: TimeInterval = 180     // one extra reminder if you didn't come back
 }
 
 @MainActor
 final class Store: ObservableObject {
-    @Published var sessoes: [Sessao] = []
-    @Published var cincoHoras: Janela?
-    @Published var semana: Janela?
-    @Published var mudo = false
-    @Published var hoje = Placar()
-    @Published var semanaEsp: Double = 0
-    @Published var previsao: Double?          // quando a janela de 5 h estoura, se for antes de renovar
-    @Published var previsaoFolga = false      // o ritmo atual cabe na janela
+    @Published var sessions: [Session] = []
+    @Published var fiveHour: UsageWindow?
+    @Published var week: UsageWindow?
+    @Published var muted = false
+    @Published var today = Scoreboard()
+    @Published var weekWaiting: Double = 0
+    @Published var forecast: Double?          // when the 5-hour window runs out, if that happens before it resets
+    @Published var forecastHeadroom = false   // the current pace fits in the window
 
-    private var dias: [String: [String: Double]] = [:]
-    private var ultimoTick: Date?
+    private var days: [String: [String: Double]] = [:]
+    private var lastTick: Date?
     private var ticks = 0
-    private var aguardandoAntes: [String: Double] = [:]
-    private var amostras: [(t: Double, p: Double)] = []
-    private var resetsAtual: Double = 0
-    private var ultimaLeituraLimites: Double = 0
+    private var previouslyAwaiting: [String: Double] = [:]
+    private var samples: [(t: Double, p: Double)] = []
+    private var currentResets: Double = 0
+    private var lastLimitsRead: Double = 0
 
     init() {
-        if let d = readJSON(placarFile)?["dias"] as? [String: [String: Double]] { dias = d }
+        if let d = readJSON(scoreboardFile)?["dias"] as? [String: [String: Double]] { days = d }
     }
 
-    var contextoAlto: Bool { sessoes.contains { ($0.ctx ?? 0) >= 80 } }
-    var pontoVerde: Bool {
-        cor != .verde && sessoes.contains { $0.estado == .done && !vistos.contains(chave($0)) }
+    var highContext: Bool { sessions.contains { ($0.ctx ?? 0) >= 80 } }
+    var greenDot: Bool {
+        color != .green && sessions.contains { $0.state == .done && !seen.contains(sessionKey($0)) }
     }
 
-    private var vistos = Set<String>()
-    private var conhecidos = Set<String>()
-    private var ultimoSom: [String: Date] = [:]
-    private var lembretes: [String: Int] = [:]
-    private var primeiraCarga = true
+    private var seen = Set<String>()
+    private var known = Set<String>()
+    private var lastSound: [String: Date] = [:]
+    private var reminders: [String: Int] = [:]
+    private var firstLoad = true
 
-    func chave(_ s: Sessao) -> String { "\(s.id)|\(s.estado.rawValue)|\(Int(s.desde))" }
+    func sessionKey(_ s: Session) -> String { "\(s.id)|\(s.state.rawValue)|\(Int(s.since))" }
 
-    var cor: Cor {
-        if sessoes.contains(where: { $0.estado == .awaiting }) { return .amarelo }
-        if sessoes.contains(where: { $0.estado == .running }) { return .azul }
-        if sessoes.contains(where: { $0.estado == .background }) { return .azulFundo }
-        if sessoes.contains(where: { $0.estado == .done && !vistos.contains(chave($0)) }) { return .verde }
-        return sessoes.isEmpty ? .cinza : .verdeApagado
+    var color: RobotColor {
+        if sessions.contains(where: { $0.state == .awaiting }) { return .yellow }
+        if sessions.contains(where: { $0.state == .running }) { return .blue }
+        if sessions.contains(where: { $0.state == .background }) { return .backgroundBlue }
+        if sessions.contains(where: { $0.state == .done && !seen.contains(sessionKey($0)) }) { return .green }
+        return sessions.isEmpty ? .gray : .dimGreen
     }
 
-    func recarregar() {
-        let agora = Date().timeIntervalSince1970
-        var lista: [Sessao] = []
-        let arquivos = (try? fm.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
-        for url in arquivos where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".metrics.json") {
+    func reload() {
+        let now = Date().timeIntervalSince1970
+        var list: [Session] = []
+        let files = (try? fm.contentsOfDirectory(at: sessionsDir, includingPropertiesForKeys: nil)) ?? []
+        for url in files where url.pathExtension == "json" && !url.lastPathComponent.hasSuffix(".metrics.json") {
             guard let r = readJSON(url) else { continue }
             let id = url.deletingPathExtension().lastPathComponent
-            let metricas = sessionsDir.appendingPathComponent("\(id).metrics.json")
-            let atualizado = num(r["updated"]) ?? 0
-            if agora - atualizado > 12 * 3600 {   // sessão abandonada há mais de 12 h
+            let metricsURL = sessionsDir.appendingPathComponent("\(id).metrics.json")
+            let updated = num(r["updated"]) ?? 0
+            if now - updated > 12 * 3600 {   // session abandoned for more than 12 h
                 try? fm.removeItem(at: url)
-                try? fm.removeItem(at: metricas)
+                try? fm.removeItem(at: metricsURL)
                 continue
             }
-            var s = Sessao(id: id,
-                           projeto: r["project"] as? String ?? tr("sessão", "session"),
-                           estado: Estado(rawValue: r["state"] as? String ?? "") ?? .idle,
-                           desde: num(r["since"]) ?? atualizado,
-                           atualizado: atualizado,
+            var s = Session(id: id,
+                           project: r["project"] as? String ?? tr("sessão", "session"),
+                           state: SessionState(rawValue: r["state"] as? String ?? "") ?? .idle,
+                           since: num(r["since"]) ?? updated,
+                           updated: updated,
                            bg: r["bg"] as? String,
-                           resumo: r["resumo"] as? String,
+                           summary: r["resumo"] as? String,
                            tty: r["tty"] as? String,
                            bundle: r["bundle"] as? String,
                            termprog: r["termprog"] as? String)
-            if let m = readJSON(metricas) {
+            if let m = readJSON(metricsURL) {
                 s.ctx = num(m["ctx"])
-                s.modelo = m["model"] as? String
-                if r["project"] == nil, let p = m["project"] as? String { s.projeto = p }
+                s.model = m["model"] as? String
+                if r["project"] == nil, let p = m["project"] as? String { s.project = p }
             }
-            lista.append(s)
+            list.append(s)
         }
-        lista.sort { $0.desde > $1.desde }
-        if lista != sessoes { sessoes = lista }
+        list.sort { $0.since > $1.since }
+        if list != sessions { sessions = list }
 
         if let l = readJSON(limitsFile) {
-            let c = janela(l["five_hour"], agora), w = janela(l["seven_day"], agora)
-            if c != cincoHoras { cincoHoras = c }
-            if w != semana { semana = w }
-            registrarAmostra(l)
+            let c = usageWindow(l["five_hour"], now), w = usageWindow(l["seven_day"], now)
+            if c != fiveHour { fiveHour = c }
+            if w != week { week = w }
+            recordSample(l)
         }
-        atualizarPlacar(Date())
-        tocarSeNecessario()
-        primeiraCarga = false
+        updateScoreboard(Date())
+        playSoundsIfNeeded()
+        firstLoad = false
     }
 
-    // MARK: Previsão da janela de 5 horas
+    // MARK: 5-hour window forecast
 
-    private func registrarAmostra(_ l: [String: Any]) {
-        guard let lido = num(l["updated"]), lido != ultimaLeituraLimites,
+    private func recordSample(_ l: [String: Any]) {
+        guard let readAt = num(l["updated"]), readAt != lastLimitsRead,
               let fh = l["five_hour"] as? [String: Any], let p = num(fh["pct"]) else { return }
-        ultimaLeituraLimites = lido
+        lastLimitsRead = readAt
         let r = num(fh["resets"]) ?? 0
-        if r != resetsAtual { amostras = []; resetsAtual = r }
-        amostras.append((lido, p))
-        amostras = amostras.filter { lido - $0.t <= 3600 }   // ritmo da última hora
+        if r != currentResets { samples = []; currentResets = r }
+        samples.append((readAt, p))
+        samples = samples.filter { readAt - $0.t <= 3600 }   // pace over the last hour
 
-        var estouro: Double?
-        var folga = false
-        if let a = amostras.first, let b = amostras.last, b.t - a.t >= 300 {
+        var overflow: Double?
+        var headroom = false
+        if let a = samples.first, let b = samples.last, b.t - a.t >= 300 {
             if b.p > a.p {
-                let ritmo = (b.p - a.p) / (b.t - a.t)
-                let quando = b.t + (100 - b.p) / ritmo
-                if resetsAtual > 0 && quando < resetsAtual { estouro = quando } else { folga = true }
+                let rate = (b.p - a.p) / (b.t - a.t)
+                let fullAt = b.t + (100 - b.p) / rate
+                if currentResets > 0 && fullAt < currentResets { overflow = fullAt } else { headroom = true }
             } else {
-                folga = true
+                headroom = true
             }
         }
-        if estouro != previsao { previsao = estouro }
-        if folga != previsaoFolga { previsaoFolga = folga }
+        if overflow != forecast { forecast = overflow }
+        if headroom != forecastHeadroom { forecastHeadroom = headroom }
     }
 
-    // MARK: Placar do dia
+    // MARK: Today's scoreboard
 
-    private func chaveDia(_ d: Date) -> String {
+    private func dayKey(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: d)
     }
 
-    private func atualizarPlacar(_ agora: Date) {
-        let dt = min(ultimoTick.map { agora.timeIntervalSince($0) } ?? 0, 2)
-        ultimoTick = agora
-        let dia = chaveDia(agora)
-        var d = dias[dia] ?? [:]
-        if sessoes.contains(where: { $0.estado == .running || $0.estado == .background }) { d["trab", default: 0] += dt }
-        if sessoes.contains(where: { $0.estado == .awaiting }) { d["esp", default: 0] += dt }
+    private func updateScoreboard(_ now: Date) {
+        let dt = min(lastTick.map { now.timeIntervalSince($0) } ?? 0, 2)
+        lastTick = now
+        let day = dayKey(now)
+        var d = days[day] ?? [:]
+        if sessions.contains(where: { $0.state == .running || $0.state == .background }) { d["trab", default: 0] += dt }
+        if sessions.contains(where: { $0.state == .awaiting }) { d["esp", default: 0] += dt }
 
-        var atuais: [String: Double] = [:]
-        for s in sessoes where s.estado == .awaiting { atuais[chave(s)] = s.desde }
-        for (k, desde) in aguardandoAntes where atuais[k] == nil {
+        var awaitingNow: [String: Double] = [:]
+        for s in sessions where s.state == .awaiting { awaitingNow[sessionKey(s)] = s.since }
+        for (k, since) in previouslyAwaiting where awaitingNow[k] == nil {
             d["nResp", default: 0] += 1
-            d["tResp", default: 0] += max(0, agora.timeIntervalSince1970 - desde)
+            d["tResp", default: 0] += max(0, now.timeIntervalSince1970 - since)
         }
-        aguardandoAntes = atuais
-        dias[dia] = d
+        previouslyAwaiting = awaitingNow
+        days[day] = d
 
-        let ultimos7 = (0..<7).map { chaveDia(agora.addingTimeInterval(-Double($0) * 86400)) }
-        dias = dias.filter { ultimos7.contains($0.key) }
-        let h = Placar(trab: (d["trab"] ?? 0).rounded(), esp: (d["esp"] ?? 0).rounded(),
-                       nResp: Int(d["nResp"] ?? 0), tResp: d["tResp"] ?? 0)
-        if h != hoje { hoje = h }
-        let sem = ultimos7.reduce(0) { $0 + (dias[$1]?["esp"] ?? 0) }.rounded()
-        if sem != semanaEsp { semanaEsp = sem }
+        let last7Days = (0..<7).map { dayKey(now.addingTimeInterval(-Double($0) * 86400)) }
+        days = days.filter { last7Days.contains($0.key) }
+        let h = Scoreboard(working: (d["trab"] ?? 0).rounded(), waiting: (d["esp"] ?? 0).rounded(),
+                       replyCount: Int(d["nResp"] ?? 0), replyTime: d["tResp"] ?? 0)
+        if h != today { today = h }
+        let weekWait = last7Days.reduce(0) { $0 + (days[$1]?["esp"] ?? 0) }.rounded()
+        if weekWait != weekWaiting { weekWaiting = weekWait }
 
         ticks += 1
-        if ticks >= 20 {   // grava a cada ~10 s
+        if ticks >= 20 {   // saves every ~10 s
             ticks = 0
-            writeJSON(["dias": dias], to: placarFile)
+            writeJSON(["dias": days], to: scoreboardFile)
         }
     }
 
-    private func janela(_ v: Any?, _ agora: Double) -> Janela? {
+    private func usageWindow(_ v: Any?, _ now: Double) -> UsageWindow? {
         guard let d = v as? [String: Any], let p = num(d["pct"]) else { return nil }
         let r = num(d["resets"]) ?? 0
-        if r > 0 && r < agora { return Janela(pct: 0, reinicia: 0) }   // janela já renovou
-        return Janela(pct: p, reinicia: r)
+        if r > 0 && r < now { return UsageWindow(pct: 0, resetsAt: 0) }   // the window has already reset
+        return UsageWindow(pct: p, resetsAt: r)
     }
 
-    private func tocarSeNecessario() {
-        let agora = Date()
-        let ativos = Set(sessoes.map(chave))
-        for s in sessoes {
-            let k = chave(s)
-            let nova = !conhecidos.contains(k)
-            conhecidos.insert(k)
-            if primeiraCarga {
-                ultimoSom[k] = agora
-                lembretes[k] = 99
+    private func playSoundsIfNeeded() {
+        let now = Date()
+        let active = Set(sessions.map(sessionKey))
+        for s in sessions {
+            let k = sessionKey(s)
+            let isNew = !known.contains(k)
+            known.insert(k)
+            if firstLoad {
+                lastSound[k] = now
+                reminders[k] = 99
                 continue
             }
-            if vistos.contains(k) { continue }
-            let n = lembretes[k] ?? 0
-            switch s.estado {
+            if seen.contains(k) { continue }
+            let n = reminders[k] ?? 0
+            switch s.state {
             case .awaiting:
-                if nova { tocar(Sons.permissao, k) }
-                else if let u = ultimoSom[k], agora.timeIntervalSince(u) > Sons.lembretePermissaoSeg,
-                        n < Sons.maxLembretesPermissao {
-                    tocar(Sons.permissao, k); lembretes[k] = n + 1
+                if isNew { playSound(Sounds.permission, k) }
+                else if let u = lastSound[k], now.timeIntervalSince(u) > Sounds.permissionReminderInterval,
+                        n < Sounds.maxPermissionReminders {
+                    playSound(Sounds.permission, k); reminders[k] = n + 1
                 }
             case .done:
-                // Espera 3 s: se outra tarefa acordar o Claude logo em seguida, não toca à toa.
-                if ultimoSom[k] == nil {
-                    if agora.timeIntervalSince1970 - s.desde >= 3 { tocar(Sons.terminou, k) }
-                } else if let u = ultimoSom[k], agora.timeIntervalSince(u) > Sons.lembreteTerminouSeg, n < 1 {
-                    tocar(Sons.terminou, k); lembretes[k] = n + 1
+                // Waits 3 s: if another task wakes Claude right after, it doesn't play for nothing.
+                if lastSound[k] == nil {
+                    if now.timeIntervalSince1970 - s.since >= 3 { playSound(Sounds.finished, k) }
+                } else if let u = lastSound[k], now.timeIntervalSince(u) > Sounds.finishedReminderInterval, n < 1 {
+                    playSound(Sounds.finished, k); reminders[k] = n + 1
                 }
             default:
                 break
             }
         }
-        conhecidos.formIntersection(ativos)
-        vistos.formIntersection(ativos)
-        ultimoSom = ultimoSom.filter { ativos.contains($0.key) }
-        lembretes = lembretes.filter { ativos.contains($0.key) }
+        known.formIntersection(active)
+        seen.formIntersection(active)
+        lastSound = lastSound.filter { active.contains($0.key) }
+        reminders = reminders.filter { active.contains($0.key) }
     }
 
-    private func tocar(_ nome: String, _ k: String) {
-        ultimoSom[k] = Date()
-        if !mudo { NSSound(named: NSSound.Name(nome))?.play() }
+    private func playSound(_ name: String, _ k: String) {
+        lastSound[k] = Date()
+        if !muted { NSSound(named: NSSound.Name(name))?.play() }
     }
 
-    /// Abrir o painel conta como "vi": para os lembretes sonoros.
-    func reconhecer() {
-        for s in sessoes where s.estado == .done || s.estado == .awaiting { vistos.insert(chave(s)) }
+    /// Opening the panel counts as "seen" for the sound reminders.
+    func acknowledge() {
+        for s in sessions where s.state == .done || s.state == .awaiting { seen.insert(sessionKey(s)) }
         objectWillChange.send()
     }
 }
 
-// MARK: - Janela no notch
+// MARK: - Notch window
 
-final class Painel: NSPanel {
+final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -773,118 +778,118 @@ final class Host: NSHostingView<PillView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
-/// Geometria e estado de abertura de um painel (um por tela).
+/// Geometry and open state of a panel (one per screen).
 @MainActor
-final class GeoPainel: ObservableObject {
-    @Published var aberto = false
-    @Published var w: CGFloat = 230     // fechado: largura do notch + orelhas
-    @Published var h: CGFloat = 32      // fechado: altura da barra de menus
-    @Published var W: CGFloat = 330     // aberto
+final class PanelGeometry: ObservableObject {
+    @Published var isOpen = false
+    @Published var w: CGFloat = 230   // closed: notch width + ears
+    @Published var h: CGFloat = 32    // closed: menu bar height
+    @Published var W: CGFloat = 330   // open
     @Published var H: CGFloat = 260
-    var tela: NSRect = .zero
+    var screenFrame: NSRect = .zero
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store()
-    var paineis: [CGDirectDisplayID: (painel: Painel, host: Host, geo: GeoPainel)] = [:]
+    var panels: [CGDirectDisplayID: (panel: NotchPanel, host: Host, geo: PanelGeometry)] = [:]
     var timer: Timer?
-    var monitorCliques: Any?
-    var telasOcultas = Set<String>()
-    let mola = Animation.spring(response: 0.45, dampingFraction: 0.86)
+    var clickMonitor: Any?
+    var hiddenScreens = Set<String>()
+    let springAnimation = Animation.spring(response: 0.45, dampingFraction: 0.86)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ensureDirs()
         let prefs = readJSON(prefsFile) ?? [:]
-        store.mudo = prefs["mudo"] as? Bool ?? false
-        telasOcultas = Set(prefs["ocultas"] as? [String] ?? [])
+        store.muted = prefs["mudo"] as? Bool ?? false
+        hiddenScreens = Set(prefs["ocultas"] as? [String] ?? [])
 
-        sincronizarPaineis()
+        syncPanels()
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sincronizarPaineis() }
+            MainActor.assumeIsolated { self?.syncPanels() }
         }
-        // Clique em qualquer outro app recolhe o painel.
-        monitorCliques = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.fecharTodos() }
+        // A click in any other app collapses the panel.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closeAll() }
         }
-        store.recarregar()
+        store.reload()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.store.recarregar()
-                self?.verificarDemo()
+                self?.store.reload()
+                self?.checkDemo()
             }
         }
         DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.verificarInstalacao() }
+            MainActor.assumeIsolated { self?.checkInstallation() }
         }
     }
 
-    // MARK: Demonstração (usada pelo gravar-demo.sh)
+    // MARK: Demo (used by record-demo.sh)
 
-    var abertoPelaDemo = false
+    var openedByDemo = false
 
-    func verificarDemo() {
-        let pedido = fm.fileExists(atPath: baseDir.appendingPathComponent("demo-painel").path)
-        if pedido && !abertoPelaDemo {
-            let principal = NSScreen.screens.first.map { idTela($0) }
-            if let id = principal.flatMap({ paineis[$0] != nil ? $0 : nil }) ?? paineis.keys.first {
-                if paineis[id]?.geo.aberto == false { alternarDetalhe(id) }
-                abertoPelaDemo = true
+    func checkDemo() {
+        let requested = fm.fileExists(atPath: baseDir.appendingPathComponent("demo-panel").path)
+        if requested && !openedByDemo {
+            let mainID = NSScreen.screens.first.map { displayID($0) }
+            if let id = mainID.flatMap({ panels[$0] != nil ? $0 : nil }) ?? panels.keys.first {
+                if panels[id]?.geo.isOpen == false { toggleDetail(id) }
+                openedByDemo = true
             }
-        } else if !pedido && abertoPelaDemo {
-            fecharTodos()
-            abertoPelaDemo = false
+        } else if !requested && openedByDemo {
+            closeAll()
+            openedByDemo = false
         }
     }
 
-    // MARK: Instalação
+    // MARK: Installation
 
-    func aviso(_ titulo: String, _ texto: String, botoes: [String] = ["OK"]) -> Int {
+    func showAlert(_ title: String, _ text: String, buttons: [String] = ["OK"]) -> Int {
         NSApp.activate(ignoringOtherApps: true)
         let a = NSAlert()
-        a.messageText = titulo
-        a.informativeText = texto
-        for b in botoes { a.addButton(withTitle: b) }
+        a.messageText = title
+        a.informativeText = text
+        for b in buttons { a.addButton(withTitle: b) }
         return a.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }
 
-    func verificarInstalacao() {
+    func checkInstallation() {
         if binPath.hasPrefix("/Volumes/") || binPath.contains("/AppTranslocation/") {
-            _ = aviso(tr("Arraste o Psiu para Aplicativos", "Drag Psiu to Applications"),
+            _ = showAlert(tr("Arraste o Psiu para Aplicativos", "Drag Psiu to Applications"),
                       tr("Ele está rodando de dentro do instalador. Arraste o Psiu para a pasta Aplicativos e abra de lá.",
                          "It's running from inside the installer. Drag Psiu to the Applications folder and open it from there."))
             NSApp.terminate(nil)
             return
         }
-        guard !psiuLigado() else { return }
-        var texto = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
+        guard !isPsiuConnected() else { return }
+        var text = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
                        "Psiu adds its hooks and status line to ~/.claude/settings.json, keeping a backup of the original, and opens when you log in to your Mac. Nothing leaves your computer.")
-        if temFarol { texto += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
+        if hasFarol { text += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
                                   "\n\nFarol, the previous version, will be turned off and replaced. Your scoreboard and preferences come along.") }
-        guard aviso(tr("Ligar o Psiu ao Claude Code?", "Connect Psiu to Claude Code?"), texto,
-                    botoes: [tr("Ligar", "Connect"), tr("Agora não", "Not now")]) == 0 else { return }
-        migrarFarol()
+        guard showAlert(tr("Ligar o Psiu ao Claude Code?", "Connect Psiu to Claude Code?"), text,
+                    buttons: [tr("Ligar", "Connect"), tr("Agora não", "Not now")]) == 0 else { return }
+        migrateFromFarol()
         runInstall()
-        var fim = tr("Reinicie as sessões do Claude Code que estiverem abertas.", "Restart any Claude Code sessions that are open.")
+        var doneMessage = tr("Reinicie as sessões do Claude Code que estiverem abertas.", "Restart any Claude Code sessions that are open.")
         do {
             try SMAppService.mainApp.register()
             if SMAppService.mainApp.status == .requiresApproval {
-                fim += tr("\n\nPara ele abrir no login, autorize o Psiu em Ajustes do Sistema → Geral → Itens de Início.",
+                doneMessage += tr("\n\nPara ele abrir no login, autorize o Psiu em Ajustes do Sistema → Geral → Itens de Início.",
                           "\n\nTo open it at login, allow Psiu in System Settings → General → Login Items.")
             }
         } catch {
-            fim += tr("\n\nNão consegui registrar a abertura no login: ", "\n\nCouldn't register open at login: ") + error.localizedDescription
+            doneMessage += tr("\n\nNão consegui registrar a abertura no login: ", "\n\nCouldn't register open at login: ") + error.localizedDescription
         }
-        _ = aviso(tr("Psiu ligado", "Psiu is connected"), fim)
+        _ = showAlert(tr("Psiu ligado", "Psiu is connected"), doneMessage)
     }
 
-    func desinstalar() {
-        let r = aviso(tr("Desinstalar o Psiu?", "Uninstall Psiu?"),
+    func uninstall() {
+        let r = showAlert(tr("Desinstalar o Psiu?", "Uninstall Psiu?"),
                       tr("Removo os hooks e a status line do Claude Code (a sua status line anterior volta) e tiro o Psiu do login. Depois, é só arrastar o Psiu de Aplicativos para o Lixo.",
                          "I'll remove the hooks and status line from Claude Code (your previous status line comes back) and take Psiu out of your login items. Then just drag Psiu from Applications to the Trash."),
-                      botoes: [tr("Desinstalar", "Uninstall"), tr("Cancelar", "Cancel")])
+                      buttons: [tr("Desinstalar", "Uninstall"), tr("Cancelar", "Cancel")])
         guard r == 0 else { return }
         runUninstall()
         try? SMAppService.mainApp.unregister()
@@ -894,45 +899,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: Telas
+    // MARK: Screens
 
-    var telas: [String] { NSScreen.screens.map(\.localizedName) }
+    var screenNames: [String] { NSScreen.screens.map(\.localizedName) }
 
-    func idTela(_ tela: NSScreen) -> CGDirectDisplayID {
-        (tela.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+    func displayID(_ screen: NSScreen) -> CGDirectDisplayID {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
 
-    func larguraNotch(_ tela: NSScreen) -> CGFloat {
-        guard tela.safeAreaInsets.top > 0,
-              let e = tela.auxiliaryTopLeftArea, let d = tela.auxiliaryTopRightArea else { return 0 }
-        return max(0, tela.frame.width - e.width - d.width)
+    func notchWidth(_ screen: NSScreen) -> CGFloat {
+        guard screen.safeAreaInsets.top > 0,
+              let e = screen.auxiliaryTopLeftArea, let d = screen.auxiliaryTopRightArea else { return 0 }
+        return max(0, screen.frame.width - e.width - d.width)
     }
 
-    /// Nas telas sem notch, o Psiu imita o notch do MacBook (ou 185 pontos, se não houver MacBook aberto).
-    var larguraNotchPadrao: CGFloat {
-        NSScreen.screens.map { larguraNotch($0) }.first(where: { $0 > 0 }) ?? 185
+    /// On screens without a notch, Psiu mimics the MacBook's notch (or 185 points if no MacBook screen is on).
+    var defaultNotchWidth: CGFloat {
+        NSScreen.screens.map { notchWidth($0) }.first(where: { $0 > 0 }) ?? 185
     }
 
-    func visivel(_ nome: String) -> Bool { !telasOcultas.contains(nome) }
+    func isScreenVisible(_ name: String) -> Bool { !hiddenScreens.contains(name) }
 
-    func alternarTela(_ nome: String) {
-        if visivel(nome) {
-            let restantes = telas.filter { visivel($0) && $0 != nome }
-            guard !restantes.isEmpty else { return }   // nunca esconde de todas as telas
-            telasOcultas.insert(nome)
+    func toggleScreen(_ name: String) {
+        if isScreenVisible(name) {
+            let remaining = screenNames.filter { isScreenVisible($0) && $0 != name }
+            guard !remaining.isEmpty else { return }   // never hides from every screen
+            hiddenScreens.insert(name)
         } else {
-            telasOcultas.remove(nome)
+            hiddenScreens.remove(name)
         }
-        salvarPrefs()
-        sincronizarPaineis()
+        savePrefs()
+        syncPanels()
     }
 
-    func salvarPrefs() {
-        writeJSON(["mudo": store.mudo, "ocultas": Array(telasOcultas)], to: prefsFile)
+    func savePrefs() {
+        writeJSON(["mudo": store.muted, "ocultas": Array(hiddenScreens)], to: prefsFile)
     }
 
-    func criarPainel(_ id: CGDirectDisplayID) -> (painel: Painel, host: Host, geo: GeoPainel) {
-        let p = Painel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 24),
+    func makePanel(_ id: CGDirectDisplayID) -> (panel: NotchPanel, host: Host, geo: PanelGeometry) {
+        let p = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 24),
                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -941,101 +946,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         p.isMovable = false
         p.hidesOnDeactivate = false
-        let geo = GeoPainel()
-        let h = Host(rootView: PillView(store: store, app: self, tela: id, geo: geo))
+        let geo = PanelGeometry()
+        let h = Host(rootView: PillView(store: store, app: self, displayID: id, geo: geo))
         p.contentView = h
         return (p, h, geo)
     }
 
-    func sincronizarPaineis() {
-        var presentes = Set<CGDirectDisplayID>()
-        for tela in NSScreen.screens {
-            let id = idTela(tela)
-            guard visivel(tela.localizedName) else { continue }
-            presentes.insert(id)
-            let par = paineis[id] ?? criarPainel(id)
-            paineis[id] = par
-            posicionar(par, em: tela)
-            par.painel.orderFrontRegardless()
+    func syncPanels() {
+        var presentIDs = Set<CGDirectDisplayID>()
+        for screen in NSScreen.screens {
+            let id = displayID(screen)
+            guard isScreenVisible(screen.localizedName) else { continue }
+            presentIDs.insert(id)
+            let entry = panels[id] ?? makePanel(id)
+            panels[id] = entry
+            place(entry, on: screen)
+            entry.panel.orderFrontRegardless()
         }
-        for (id, par) in Array(paineis) where !presentes.contains(id) {
-            par.painel.orderOut(nil)
-            paineis[id] = nil
+        for (id, entry) in Array(panels) where !presentIDs.contains(id) {
+            entry.panel.orderOut(nil)
+            panels[id] = nil
         }
     }
 
-    func posicionar(_ par: (painel: Painel, host: Host, geo: GeoPainel), em tela: NSScreen) {
-        let f = tela.frame
-        let notch = larguraNotch(tela)
-        let alturaMenu = f.maxY - tela.visibleFrame.maxY
-        par.geo.tela = f
-        par.geo.h = notch > 0 ? tela.safeAreaInsets.top : (alturaMenu >= 20 ? alturaMenu : 24)
-        par.geo.w = (notch > 0 ? notch : larguraNotchPadrao) + 2 * 46
-        aplicarMoldura(par)
+    func place(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry), on screen: NSScreen) {
+        let f = screen.frame
+        let notch = notchWidth(screen)
+        let menuBarHeight = f.maxY - screen.visibleFrame.maxY
+        entry.geo.screenFrame = f
+        entry.geo.h = notch > 0 ? screen.safeAreaInsets.top : (menuBarHeight >= 20 ? menuBarHeight : 24)
+        entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 46
+        applyFrame(entry)
     }
 
-    /// Fechado, a janela tem o tamanho do notch; aberta, o tamanho do painel. Sempre colada no topo, centralizada.
-    func aplicarMoldura(_ par: (painel: Painel, host: Host, geo: GeoPainel)) {
-        let g = par.geo
-        let w = g.aberto ? g.W : g.w
-        let h = g.aberto ? g.H : g.h
-        par.painel.setFrame(NSRect(x: g.tela.midX - w / 2, y: g.tela.maxY - h, width: w, height: h), display: true)
+    /// Closed, the window is the size of the notch; open, the size of the panel. Always at the top, centered.
+    func applyFrame(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry)) {
+        let g = entry.geo
+        let w = g.isOpen ? g.W : g.w
+        let h = g.isOpen ? g.H : g.h
+        entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - h, width: w, height: h), display: true)
     }
 
-    func alternarDetalhe(_ id: CGDirectDisplayID) {
-        guard let par = paineis[id] else { return }
-        if par.geo.aberto { fechar(id); return }
-        fecharTodos()
-        store.reconhecer()
-        let linhas = CGFloat(min(max(store.sessoes.count, 1), 5))
-        par.geo.W = max(par.geo.w, 340)
-        par.geo.H = par.geo.h + 156 + 112 + 70 * linhas
-        // Primeiro a janela cresce (transparente), depois o notch se estica dentro dela.
-        let g = par.geo
-        par.painel.setFrame(NSRect(x: g.tela.midX - g.W / 2, y: g.tela.maxY - g.H, width: g.W, height: g.H), display: true)
-        withAnimation(mola) { par.geo.aberto = true }
+    func toggleDetail(_ id: CGDirectDisplayID) {
+        guard let entry = panels[id] else { return }
+        if entry.geo.isOpen { closePanel(id); return }
+        closeAll()
+        store.acknowledge()
+        let lines = CGFloat(min(max(store.sessions.count, 1), 5))
+        entry.geo.W = max(entry.geo.w, 340)
+        entry.geo.H = entry.geo.h + 156 + 112 + 70 * lines
+        // First the window grows (transparent), then the notch stretches inside it.
+        let g = entry.geo
+        entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
+        withAnimation(springAnimation) { entry.geo.isOpen = true }
     }
 
-    func fechar(_ id: CGDirectDisplayID) {
-        guard let par = paineis[id], par.geo.aberto else { return }
-        withAnimation(mola) { par.geo.aberto = false }
-        // Depois que o notch se recolhe, a janela volta ao tamanho do notch e libera a barra de menus.
+    func closePanel(_ id: CGDirectDisplayID) {
+        guard let entry = panels[id], entry.geo.isOpen else { return }
+        withAnimation(springAnimation) { entry.geo.isOpen = false }
+        // After the notch collapses, the window goes back to the notch size and frees the menu bar.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let par = self.paineis[id], !par.geo.aberto else { return }
-                self.aplicarMoldura(par)
+                guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
+                self.applyFrame(entry)
             }
         }
     }
 
-    func fecharTodos() {
-        for id in paineis.keys { fechar(id) }
+    func closeAll() {
+        for id in panels.keys { closePanel(id) }
     }
 
-    // MARK: Abrir o terminal da sessão
+    // MARK: Open the session's terminal
 
-    func abrirTerminal(_ s: Sessao) {
-        fecharTodos()
+    func openTerminal(_ s: Session) {
+        closeAll()
         let bundle = s.bundle ?? ""
         let prog = s.termprog ?? ""
         if let tty = s.tty, !tty.isEmpty {
             if bundle == "com.apple.Terminal" || prog == "Apple_Terminal" {
-                if rodarAppleScript(scriptTerminal(tty)) { return }
+                if runAppleScript(scriptTerminal(tty)) { return }
             }
             if bundle == "com.googlecode.iterm2" || prog == "iTerm.app" {
-                if rodarAppleScript(scriptITerm(tty)) { return }
+                if runAppleScript(scriptITerm(tty)) { return }
             }
         }
-        // Outros (VS Code, Cursor, Ghostty, Warp...): traz o app para a frente.
+        // Others (VS Code, Cursor, Ghostty, Warp...): bring the app to the front.
         if !bundle.isEmpty, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         }
     }
 
-    func rodarAppleScript(_ fonte: String) -> Bool {
-        var erro: NSDictionary?
-        let r = NSAppleScript(source: fonte)?.executeAndReturnError(&erro)
-        return erro == nil && r?.booleanValue == true
+    func runAppleScript(_ script: String) -> Bool {
+        var errorInfo: NSDictionary?
+        let r = NSAppleScript(source: script)?.executeAndReturnError(&errorInfo)
+        return errorInfo == nil && r?.booleanValue == true
     }
 
     func scriptTerminal(_ tty: String) -> String {
@@ -1078,66 +1083,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// MARK: - Visual
+// MARK: - Visuals
 
-func corSwiftUI(_ c: Cor) -> Color {
+func swiftUIColor(_ c: RobotColor) -> Color {
     switch c {
-    case .amarelo: return Color(red: 1.0, green: 0.80, blue: 0.10)
-    case .azul, .azulFundo: return Color(red: 0.25, green: 0.60, blue: 1.0)
-    case .verde: return Color(red: 0.20, green: 0.85, blue: 0.40)
-    case .verdeApagado: return Color(red: 0.20, green: 0.85, blue: 0.40).opacity(0.35)
-    case .cinza: return Color.gray.opacity(0.35)
+    case .yellow: return Color(red: 1.0, green: 0.80, blue: 0.10)
+    case .blue, .backgroundBlue: return Color(red: 0.25, green: 0.60, blue: 1.0)
+    case .green: return Color(red: 0.20, green: 0.85, blue: 0.40)
+    case .dimGreen: return Color(red: 0.20, green: 0.85, blue: 0.40).opacity(0.35)
+    case .gray: return Color.gray.opacity(0.35)
     }
 }
 
-func corEstado(_ e: Estado) -> Color {
+func stateColor(_ e: SessionState) -> Color {
     switch e {
-    case .awaiting: return corSwiftUI(.amarelo)
-    case .running, .background: return corSwiftUI(.azul)
-    case .done: return corSwiftUI(.verde)
-    case .idle: return corSwiftUI(.verdeApagado)
+    case .awaiting: return swiftUIColor(.yellow)
+    case .running, .background: return swiftUIColor(.blue)
+    case .done: return swiftUIColor(.green)
+    case .idle: return swiftUIColor(.dimGreen)
     }
 }
 
-func corUso(_ pct: Double) -> Color {
+func usageColor(_ pct: Double) -> Color {
     pct >= 90 ? .red : pct >= 75 ? .orange : Color(red: 0.20, green: 0.75, blue: 0.40)
 }
 
 struct PillView: View {
     @ObservedObject var store: Store
     let app: AppDelegate
-    let tela: CGDirectDisplayID
-    @ObservedObject var geo: GeoPainel
+    let displayID: CGDirectDisplayID
+    @ObservedObject var geo: PanelGeometry
 
-    var raio: CGFloat { geo.aberto ? 24 : 9 }
+    var radius: CGFloat { geo.isOpen ? 24 : 9 }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
-                UnevenRoundedRectangle(bottomLeadingRadius: raio, bottomTrailingRadius: raio).fill(Color.black)
+                UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius).fill(Color.black)
                 VStack(spacing: 0) {
                     HStack(spacing: 6) {
-                        uso
+                        usage
                         Spacer(minLength: 0)
-                        if store.pontoVerde || store.contextoAlto {
+                        if store.greenDot || store.highContext {
                             VStack(spacing: 3) {
-                                if store.pontoVerde { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
-                                if store.contextoAlto { Circle().fill(Color(hex: 0xE24B4A)).frame(width: 5, height: 5) }
+                                if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
+                                if store.highContext { Circle().fill(Color(hex: 0xE24B4A)).frame(width: 5, height: 5) }
                             }
                         }
-                        // Espiando, o robô encosta no fundo da faixa: a borda do corte coincide com a borda do notch.
-                        let espiando = store.cor == .azulFundo && !geo.aberto
-                        RoboView(cor: store.cor, cansado: store.contextoAlto, espiando: espiando)
+                        // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
+                        let peeking = store.color == .backgroundBlue && !geo.isOpen
+                        RobotView(color: store.color, tired: store.highContext, peeking: peeking)
                             .frame(width: 29, height: 22)
-                            .frame(maxHeight: .infinity, alignment: espiando ? .bottom : .center)
+                            .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
                     .padding(.horizontal, 10)
                     .frame(height: geo.h)
                     .contentShape(Rectangle())
-                    .onTapGesture { app.alternarDetalhe(tela) }
+                    .onTapGesture { app.toggleDetail(displayID) }
 
-                    if geo.aberto {
-                        DetalheView(store: store, aoAbrir: { app.abrirTerminal($0) })
+                    if geo.isOpen {
+                        DetailView(store: store, onOpen: { app.openTerminal($0) })
                             .environment(\.colorScheme, .dark)
                             .padding(.horizontal, 6)
                             .transition(.asymmetric(
@@ -1147,44 +1152,44 @@ struct PillView: View {
                     }
                 }
             }
-            .frame(width: geo.aberto ? geo.W : geo.w, height: geo.aberto ? geo.H : geo.h)
-            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: raio, bottomTrailingRadius: raio))
+            .frame(width: geo.isOpen ? geo.W : geo.w, height: geo.isOpen ? geo.H : geo.h)
+            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
             .contextMenu {
                 Menu(tr("Mostrar em", "Show on")) {
-                    ForEach(app.telas, id: \.self) { nome in
-                        Toggle(nome, isOn: Binding(
-                            get: { app.visivel(nome) },
-                            set: { _ in app.alternarTela(nome) }))
+                    ForEach(app.screenNames, id: \.self) { name in
+                        Toggle(name, isOn: Binding(
+                            get: { app.isScreenVisible(name) },
+                            set: { _ in app.toggleScreen(name) }))
                     }
                 }
                 Toggle(tr("Silenciar sons", "Mute sounds"), isOn: Binding(
-                    get: { store.mudo },
-                    set: { store.mudo = $0; app.salvarPrefs() }))
+                    get: { store.muted },
+                    set: { store.muted = $0; app.savePrefs() }))
                 Button(tr("Testar sons", "Test sounds")) {
-                    NSSound(named: NSSound.Name(Sons.permissao))?.play()
+                    NSSound(named: NSSound.Name(Sounds.permission))?.play()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        NSSound(named: NSSound.Name(Sons.terminou))?.play()
+                        NSSound(named: NSSound.Name(Sounds.finished))?.play()
                     }
                 }
                 Divider()
                 Button(tr("Sair do Psiu", "Quit Psiu")) { NSApp.terminate(nil) }
-                Button(tr("Desinstalar o Psiu…", "Uninstall Psiu…")) { app.desinstalar() }
+                Button(tr("Desinstalar o Psiu…", "Uninstall Psiu…")) { app.uninstall() }
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    @ViewBuilder var uso: some View {
-        if let c = store.cincoHoras {
+    @ViewBuilder var usage: some View {
+        if let c = store.fiveHour {
             Text("\(Int(c.pct.rounded()))%")
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(c.pct >= 75 ? corUso(c.pct) : Color.white.opacity(0.75))
+                .foregroundStyle(c.pct >= 75 ? usageColor(c.pct) : Color.white.opacity(0.75))
         }
     }
 }
 
-// MARK: - Robozinho
+// MARK: - Robot
 
 extension Color {
     init(hex: UInt32, alpha: Double = 1) {
@@ -1196,35 +1201,35 @@ extension Color {
     }
 }
 
-/// Cabeça de robô com olhos de LED. Desenhada numa grade de 60 x 46.
-struct RoboView: View {
-    let cor: Cor
-    var cansado = false
-    /// Segundo plano com o painel fechado: afundado no notch, só a metade de cima da cabeça aparece.
-    var espiando = false
+/// Robot head with LED eyes. Drawn on a 60 x 46 grid.
+struct RobotView: View {
+    let color: RobotColor
+    var tired = false
+    /// Background state with the panel closed: sunk into the notch, only the top half of the head shows.
+    var peeking = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
-            Canvas { g, size in desenharRobo(&g, size, cor, cansado, t, espiando: espiando) }
+            Canvas { g, size in drawRobot(&g, size, color, tired, t, peeking: peeking) }
         }
         .aspectRatio(60.0 / 46.0, contentMode: .fit)
     }
 }
 
-private func fase(_ t: Double, _ periodo: Double) -> Double {
-    t.truncatingRemainder(dividingBy: periodo) / periodo
+private func phase(_ t: Double, _ period: Double) -> Double {
+    t.truncatingRemainder(dividingBy: period) / period
 }
 
-private func pastilha(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat,
-                      escalaY: CGFloat = 1, dx: CGFloat = 0) -> Path {
-    let nh = h * escalaY
+private func pill(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat,
+                      scaleY: CGFloat = 1, dx: CGFloat = 0) -> Path {
+    let nh = h * scaleY
     let cy = y + h / 2
     return Path(roundedRect: CGRect(x: x + dx, y: cy - nh / 2, width: w, height: nh),
                 cornerRadius: min(r, nh / 2))
 }
 
-private func casca() -> Path {
+private func headShape() -> Path {
     var p = Path()
     p.move(to: CGPoint(x: 30, y: 6.5))
     p.addCurve(to: CGPoint(x: 55, y: 25), control1: CGPoint(x: 46, y: 6.5), control2: CGPoint(x: 55, y: 13))
@@ -1235,7 +1240,7 @@ private func casca() -> Path {
     return p
 }
 
-private func viseira() -> Path {
+private func visorShape() -> Path {
     var p = Path()
     p.move(to: CGPoint(x: 30, y: 9.2))
     p.addCurve(to: CGPoint(x: 52.3, y: 25), control1: CGPoint(x: 44, y: 9.2), control2: CGPoint(x: 52.3, y: 14.8))
@@ -1246,216 +1251,216 @@ private func viseira() -> Path {
     return p
 }
 
-/// Olhos caídos de cansaço (contexto alto), com uma gota de suor ao lado.
-private func olhosCansados(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ t: Double) {
-    let caida = CGFloat(1 - 0.1 * (1 - cos(2 * .pi * t / 2.6)) / 2)
-    for (cx, angulo) in [(CGFloat(20.5), -7.0), (CGFloat(39.5), 7.0)] {
+/// Eyes drooping with tiredness (high context), with a drop of sweat on the side.
+private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ t: Double) {
+    let droop = CGFloat(1 - 0.1 * (1 - cos(2 * .pi * t / 2.6)) / 2)
+    for (cx, angle) in [(CGFloat(20.5), -7.0), (CGFloat(39.5), 7.0)] {
         var gg = g
         gg.translateBy(x: cx + dx, y: 26.5)
-        gg.rotate(by: .degrees(angulo))
-        gg.fill(pastilha(-6.5, -5, 13, 10, 4.4, escalaY: caida), with: .color(led))
+        gg.rotate(by: .degrees(angle))
+        gg.fill(pill(-6.5, -5, 13, 10, 4.4, scaleY: droop), with: .color(led))
     }
-    let p = fase(t, 1.6)
+    let p = phase(t, 1.6)
     let y = CGFloat(-2 + 11 * p)
-    let alfa = p < 0.2 ? p / 0.2 : (p > 0.8 ? (1 - p) / 0.2 : 1)
-    var gota = Path()
-    gota.move(to: CGPoint(x: 53, y: 7 + y))
-    gota.addCurve(to: CGPoint(x: 57, y: 14.8 + y), control1: CGPoint(x: 56, y: 11 + y), control2: CGPoint(x: 57, y: 13 + y))
-    gota.addCurve(to: CGPoint(x: 53, y: 18.4 + y), control1: CGPoint(x: 57, y: 17 + y), control2: CGPoint(x: 55.2, y: 18.4 + y))
-    gota.addCurve(to: CGPoint(x: 49, y: 14.8 + y), control1: CGPoint(x: 50.8, y: 18.4 + y), control2: CGPoint(x: 49, y: 17 + y))
-    gota.addCurve(to: CGPoint(x: 53, y: 7 + y), control1: CGPoint(x: 49, y: 13 + y), control2: CGPoint(x: 50, y: 11 + y))
-    g.fill(gota, with: .color(Color(hex: 0xB5D4F4, alpha: alfa)))
+    let fade = p < 0.2 ? p / 0.2 : (p > 0.8 ? (1 - p) / 0.2 : 1)
+    var drop = Path()
+    drop.move(to: CGPoint(x: 53, y: 7 + y))
+    drop.addCurve(to: CGPoint(x: 57, y: 14.8 + y), control1: CGPoint(x: 56, y: 11 + y), control2: CGPoint(x: 57, y: 13 + y))
+    drop.addCurve(to: CGPoint(x: 53, y: 18.4 + y), control1: CGPoint(x: 57, y: 17 + y), control2: CGPoint(x: 55.2, y: 18.4 + y))
+    drop.addCurve(to: CGPoint(x: 49, y: 14.8 + y), control1: CGPoint(x: 50.8, y: 18.4 + y), control2: CGPoint(x: 49, y: 17 + y))
+    drop.addCurve(to: CGPoint(x: 53, y: 7 + y), control1: CGPoint(x: 49, y: 13 + y), control2: CGPoint(x: 50, y: 11 + y))
+    g.fill(drop, with: .color(Color(hex: 0xB5D4F4, alpha: fade)))
 }
 
-private func desenharRobo(_ g: inout GraphicsContext, _ size: CGSize, _ cor: Cor, _ cansado: Bool, _ t: Double,
-                          espiando: Bool = false) {
+private func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, _ tired: Bool, _ t: Double,
+                          peeking: Bool = false) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
     g.scaleBy(x: s, y: s)
     g.clip(to: Path(CGRect(x: 0, y: 0, width: 60, height: 46)))
 
-    // Cores da casca e do LED por estado.
+    // Shell and LED colors per state.
     let shell: Color, led: Color
-    switch cor {
-    case .azul, .azulFundo: shell = Color(hex: 0x85B7EB); led = Color(hex: 0xA9D2FF)
-    case .amarelo: shell = Color(hex: 0xFAC775); led = Color(hex: 0xFFD27A)
-    case .verde: shell = Color(hex: 0xC0DD97); led = Color(hex: 0xC7EE8F)
-    case .verdeApagado: shell = Color(hex: 0xC0DD97, alpha: 0.5); led = Color(hex: 0xC7EE8F, alpha: 0.5)
-    case .cinza: shell = Color(hex: 0x888780); led = Color(hex: 0xD3D1C7)
+    switch color {
+    case .blue, .backgroundBlue: shell = Color(hex: 0x85B7EB); led = Color(hex: 0xA9D2FF)
+    case .yellow: shell = Color(hex: 0xFAC775); led = Color(hex: 0xFFD27A)
+    case .green: shell = Color(hex: 0xC0DD97); led = Color(hex: 0xC7EE8F)
+    case .dimGreen: shell = Color(hex: 0xC0DD97, alpha: 0.5); led = Color(hex: 0xC7EE8F, alpha: 0.5)
+    case .gray: shell = Color(hex: 0x888780); led = Color(hex: 0xD3D1C7)
     }
 
-    // Movimento da cabeça.
-    var dy = 0.0, giro = 0.0
-    switch cor {
-    case .amarelo:
+    // Head movement.
+    var dy = 0.0, tilt = 0.0
+    switch color {
+    case .yellow:
         let w = sin(2 * .pi * t / 0.9)
-        giro = 5 * w
+        tilt = 5 * w
         dy = -3 * abs(w)
-    case .verde:
-        let p = fase(t, 1.5)
+    case .green:
+        let p = phase(t, 1.5)
         dy = p < 0.6 ? -5 * sin(.pi * p / 0.6) : 0
-    case .cinza:
+    case .gray:
         dy = 1.5 * (1 - cos(2 * .pi * t / 3.2)) / 2
-    case .azulFundo where espiando:
-        let p = fase(t, 5)
-        // parado embaixo, sobe entre 38% e 48%, fica em cima até 68%, desce até 78%
-        let sobe: Double = p < 0.38 ? 0 : p < 0.48 ? (1 - cos(.pi * (p - 0.38) / 0.10)) / 2 : p < 0.68 ? 1 : p < 0.78 ? (1 + cos(.pi * (p - 0.68) / 0.10)) / 2 : 0
-        dy = 21 - 4.5 * sobe
+    case .backgroundBlue where peeking:
+        let p = phase(t, 5)
+        // rests at the bottom, rises between 38% and 48%, stays up until 68%, goes down by 78%
+        let rise: Double = p < 0.38 ? 0 : p < 0.48 ? (1 - cos(.pi * (p - 0.38) / 0.10)) / 2 : p < 0.68 ? 1 : p < 0.78 ? (1 + cos(.pi * (p - 0.68) / 0.10)) / 2 : 0
+        dy = 21 - 4.5 * rise
     default:
         break
     }
     g.translateBy(x: 30, y: 25 + dy)
-    g.rotate(by: .degrees(giro))
+    g.rotate(by: .degrees(tilt))
     g.translateBy(x: -30, y: -25)
 
-    g.fill(casca(), with: .color(shell))
-    g.fill(viseira(), with: .color(Color(hex: 0x141414)))
+    g.fill(headShape(), with: .color(shell))
+    g.fill(visorShape(), with: .color(Color(hex: 0x141414)))
 
-    // Olhos de LED.
-    switch cor {
-    case .azul:   // concentrado, varrendo de um lado para o outro
+    // LED eyes.
+    switch color {
+    case .blue:   // focused, scanning from side to side
         let dx = CGFloat(3 * sin(2 * .pi * t / 1.3))
-        if cansado { olhosCansados(&g, led, dx: dx, t); break }
-        g.fill(pastilha(14, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
-        g.fill(pastilha(33, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
+        if tired { tiredEyes(&g, led, dx: dx, t); break }
+        g.fill(pill(14, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
+        g.fill(pill(33, 18.4, 13, 12.8, 5, dx: dx), with: .color(led))
 
-    case .azulFundo where espiando:   // afundado no notch, espiando acima da borda
+    case .backgroundBlue where peeking:   // sunk into the notch, peeking over the edge
         let dx = CGFloat(2.6 * sin(2 * .pi * t / 4))
-        if cansado { olhosCansados(&g, led, dx: dx, t); break }
-        let p = fase(t, 5)
-        let pisca: CGFloat = (p > 0.90 && p < 0.94) ? 0.1 : 1
-        g.fill(pastilha(14, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
-        g.fill(pastilha(33, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
+        if tired { tiredEyes(&g, led, dx: dx, t); break }
+        let p = phase(t, 5)
+        let blink: CGFloat = (p > 0.90 && p < 0.94) ? 0.1 : 1
+        g.fill(pill(14, 18.4, 13, 12.8, 5, scaleY: blink, dx: dx), with: .color(led))
+        g.fill(pill(33, 18.4, 13, 12.8, 5, scaleY: blink, dx: dx), with: .color(led))
 
-    case .azulFundo:   // painel aberto: cabeça inteira, varre devagar e pisca
+    case .backgroundBlue:   // panel open: whole head, scanning slowly and blinking
         let dx = CGFloat(3 * sin(2 * .pi * t / 4))
-        if cansado { olhosCansados(&g, led, dx: dx, t); break }
-        let p = fase(t, 4)
-        let pisca: CGFloat = (p > 0.9 && p < 0.95) ? 0.12 : 1
-        g.fill(pastilha(14, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
-        g.fill(pastilha(33, 18.4, 13, 12.8, 5, escalaY: pisca, dx: dx), with: .color(led))
+        if tired { tiredEyes(&g, led, dx: dx, t); break }
+        let p = phase(t, 4)
+        let blink: CGFloat = (p > 0.9 && p < 0.95) ? 0.12 : 1
+        g.fill(pill(14, 18.4, 13, 12.8, 5, scaleY: blink, dx: dx), with: .color(led))
+        g.fill(pill(33, 18.4, 13, 12.8, 5, scaleY: blink, dx: dx), with: .color(led))
 
-    case .amarelo:   // olhos e exclamação alternando
+    case .yellow:   // eyes and exclamation mark alternating
         if Int(t / 0.8) % 2 == 0 {
-            g.fill(pastilha(14, 16, 13, 17.4, 5.6), with: .color(led))
-            g.fill(pastilha(33, 16, 13, 17.4, 5.6), with: .color(led))
+            g.fill(pill(14, 16, 13, 17.4, 5.6), with: .color(led))
+            g.fill(pill(33, 16, 13, 17.4, 5.6), with: .color(led))
         } else {
-            g.fill(pastilha(26, 13, 8, 15.2, 4), with: .color(led))
+            g.fill(pill(26, 13, 8, 15.2, 4), with: .color(led))
             g.fill(Path(ellipseIn: CGRect(x: 26, y: 29.4, width: 8, height: 8)), with: .color(led))
         }
 
-    case .verde:   // sorrindo
-        var arcos = Path()
-        arcos.move(to: CGPoint(x: 15, y: 29)); arcos.addQuadCurve(to: CGPoint(x: 26, y: 29), control: CGPoint(x: 20.5, y: 18))
-        arcos.move(to: CGPoint(x: 34, y: 29)); arcos.addQuadCurve(to: CGPoint(x: 45, y: 29), control: CGPoint(x: 39.5, y: 18))
-        g.stroke(arcos, with: .color(led), style: StrokeStyle(lineWidth: 4.6, lineCap: .round))
+    case .green:   // smiling
+        var arcs = Path()
+        arcs.move(to: CGPoint(x: 15, y: 29)); arcs.addQuadCurve(to: CGPoint(x: 26, y: 29), control: CGPoint(x: 20.5, y: 18))
+        arcs.move(to: CGPoint(x: 34, y: 29)); arcs.addQuadCurve(to: CGPoint(x: 45, y: 29), control: CGPoint(x: 39.5, y: 18))
+        g.stroke(arcs, with: .color(led), style: StrokeStyle(lineWidth: 4.6, lineCap: .round))
 
-    case .verdeApagado:   // semicerrado, piscando devagar
-        if cansado { olhosCansados(&g, led, dx: 0, t); break }
-        let p = fase(t, 5)
-        let pisca: CGFloat = (p > 0.9 && p < 0.96) ? 0.12 : 1
-        g.fill(pastilha(14, 21.6, 13, 8.6, 4, escalaY: pisca), with: .color(led))
-        g.fill(pastilha(33, 21.6, 13, 8.6, 4, escalaY: pisca), with: .color(led))
+    case .dimGreen:   // half-closed, blinking slowly
+        if tired { tiredEyes(&g, led, dx: 0, t); break }
+        let p = phase(t, 5)
+        let blink: CGFloat = (p > 0.9 && p < 0.96) ? 0.12 : 1
+        g.fill(pill(14, 21.6, 13, 8.6, 4, scaleY: blink), with: .color(led))
+        g.fill(pill(33, 21.6, 13, 8.6, 4, scaleY: blink), with: .color(led))
 
-    case .cinza:   // dormindo: Z z acendendo alternados
-        let onda = cos(2 * .pi * t / 2.4)
+    case .gray:   // sleeping: Z z lighting up in turn
+        let wave = cos(2 * .pi * t / 2.4)
         var zg = Path()
         zg.addLines([CGPoint(x: 15, y: 17), CGPoint(x: 26, y: 17), CGPoint(x: 15, y: 32), CGPoint(x: 26, y: 32)])
         var zp = Path()
         zp.addLines([CGPoint(x: 35, y: 22), CGPoint(x: 44, y: 22), CGPoint(x: 35, y: 32), CGPoint(x: 44, y: 32)])
-        g.stroke(zg, with: .color(led.opacity(0.675 + 0.325 * onda)),
+        g.stroke(zg, with: .color(led.opacity(0.675 + 0.325 * wave)),
                  style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-        g.stroke(zp, with: .color(led.opacity(0.675 - 0.325 * onda)),
+        g.stroke(zp, with: .color(led.opacity(0.675 - 0.325 * wave)),
                  style: StrokeStyle(lineWidth: 3.6, lineCap: .round, lineJoin: .round))
     }
 }
 
-func duracao(_ seg: Double) -> String {
-    let m = Int(seg / 60)
+func formatDuration(_ seconds: Double) -> String {
+    let m = Int(seconds / 60)
     if m >= 60 { return "\(m / 60)h \(m % 60)min" }
     if m >= 1 { return "\(m) min" }
-    return "\(Int(seg)) s"
+    return "\(Int(seconds)) s"
 }
 
-func horaCurta(_ epoch: Double, _ formato: String = "HH'h'mm") -> String {
+func shortTime(_ epoch: Double, _ format: String = "HH'h'mm") -> String {
     let f = DateFormatter()
-    if emPortugues {
+    if isPortuguese {
         f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = formato
+        f.dateFormat = format
     } else {
-        // Inglês com as convenções da região (12 ou 24 horas).
+        // English with the region's conventions (12 or 24 hours).
         f.locale = Locale(identifier: "en_" + (Locale.current.region?.identifier ?? "US"))
-        f.setLocalizedDateFormatFromTemplate(formato.contains("EEE") ? "EEEjmm" : "jmm")
+        f.setLocalizedDateFormatFromTemplate(format.contains("EEE") ? "EEEjmm" : "jmm")
     }
     return f.string(from: Date(timeIntervalSince1970: epoch))
 }
 
-struct DetalheView: View {
+struct DetailView: View {
     @ObservedObject var store: Store
-    var aoAbrir: (Sessao) -> Void = { _ in }
+    var onOpen: (Session) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LimiteView(titulo: tr("Sessão de 5 horas", "5-hour session"), janela: store.cincoHoras, formato: "HH:mm",
-                       estouro: store.previsao, folga: store.previsaoFolga)
-            LimiteView(titulo: tr("Semana", "Week"), janela: store.semana, formato: "EEE HH:mm")
+            LimitView(title: tr("Sessão de 5 horas", "5-hour session"), usageWindow: store.fiveHour, format: "HH:mm",
+                       overflow: store.forecast, headroom: store.forecastHeadroom)
+            LimitView(title: tr("Semana", "Week"), usageWindow: store.week, format: "EEE HH:mm")
             Divider()
-            if store.sessoes.isEmpty {
+            if store.sessions.isEmpty {
                 Text(tr("Nenhuma sessão do Claude Code aberta.", "No Claude Code sessions open."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
-                ForEach(store.sessoes.prefix(5)) { s in
-                    SessaoView(s: s)
+                ForEach(store.sessions.prefix(5)) { s in
+                    SessionView(s: s)
                         .contentShape(Rectangle())
-                        .onTapGesture { aoAbrir(s) }
+                        .onTapGesture { onOpen(s) }
                 }
             }
             Divider()
-            PlacarView(hoje: store.hoje, semanaEsp: store.semanaEsp)
+            ScoreboardView(today: store.today, weekWaiting: store.weekWaiting)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-struct LimiteView: View {
-    let titulo: String
-    let janela: Janela?
-    let formato: String
-    var estouro: Double? = nil
-    var folga = false
+struct LimitView: View {
+    let title: String
+    let usageWindow: UsageWindow?
+    let format: String
+    var overflow: Double? = nil
+    var headroom = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(titulo).font(.system(size: 12, weight: .medium))
+                Text(title).font(.system(size: 12, weight: .medium))
                 Spacer()
-                if let j = janela {
+                if let j = usageWindow {
                     Text("\(Int(j.pct.rounded()))%").font(.system(size: 12, weight: .semibold).monospacedDigit())
                 }
             }
-            if let j = janela {
+            if let j = usageWindow {
                 GeometryReader { geo in
                     let w = geo.size.width
-                    let usado = w * CGFloat(min(j.pct, 100) / 100)
+                    let used = w * CGFloat(min(j.pct, 100) / 100)
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.12))
-                        if estouro != nil {
+                        if overflow != nil {
                             Rectangle().fill(Color(hex: 0xEF9F27, alpha: 0.4))
-                                .frame(width: max(0, w - usado)).offset(x: usado)
+                                .frame(width: max(0, w - used)).offset(x: used)
                         }
-                        Capsule().fill(corUso(j.pct)).frame(width: usado)
+                        Capsule().fill(usageColor(j.pct)).frame(width: used)
                     }
                     .clipShape(Capsule())
                 }
                 .frame(height: 5)
                 HStack {
-                    Text(renovacao(j)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(resetText(j)).font(.system(size: 10)).foregroundStyle(.secondary)
                     Spacer()
-                    if let e = estouro {
-                        Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + horaCurta(e))
+                    if let e = overflow {
+                        Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + shortTime(e))
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(Color(hex: 0xFAC775))
-                    } else if folga {
+                    } else if headroom {
                         Text(tr("No ritmo atual, dá folga", "At this pace, plenty left")).font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                 }
@@ -1466,26 +1471,26 @@ struct LimiteView: View {
         }
     }
 
-    func renovacao(_ j: Janela) -> String {
-        guard j.reinicia > 0 else { return tr("Janela renovada", "Window reset") }
-        return tr("Renova ", "Resets ") + horaCurta(j.reinicia, formato)
+    func resetText(_ j: UsageWindow) -> String {
+        guard j.resetsAt > 0 else { return tr("Janela renovada", "Window reset") }
+        return tr("Renova ", "Resets ") + shortTime(j.resetsAt, format)
     }
 }
 
-struct SessaoView: View {
-    let s: Sessao
+struct SessionView: View {
+    let s: Session
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(corEstado(s.estado)).frame(width: 8, height: 8).padding(.top, 4)
+            Circle().fill(stateColor(s.state)).frame(width: 8, height: 8).padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(s.projeto).font(.system(size: 12, weight: .semibold))
-                    Text(rotulo).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(s.project).font(.system(size: 12, weight: .semibold))
+                    Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
                     Image(systemName: "arrow.up.forward").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
                 }
                 .lineLimit(1)
-                if let r = s.resumo, !r.isEmpty {
+                if let r = s.summary, !r.isEmpty {
                     Text(r).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1497,53 +1502,53 @@ struct SessaoView: View {
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
                         .foregroundStyle(c >= 80 ? Color(hex: 0xE24B4A) : (c >= 70 ? Color.orange : Color.secondary))
                     ProgressView(value: min(c, 100), total: 100)
-                        .tint(c >= 80 ? Color(hex: 0xE24B4A) : corUso(c)).frame(width: 60)
+                        .tint(c >= 80 ? Color(hex: 0xE24B4A) : usageColor(c)).frame(width: 60)
                 }
             }
         }
     }
 
-    var rotulo: String {
-        let agora = Date().timeIntervalSince1970
-        let minutos = Int((agora - s.desde) / 60)
-        let ha = minutos < 1 ? "agora" : "há \(minutos) min"
-        let agoraEn = minutos < 1
-        switch s.estado {
+    var label: String {
+        let now = Date().timeIntervalSince1970
+        let minutes = Int((now - s.since) / 60)
+        let ago = minutes < 1 ? "agora" : "há \(minutes) min"
+        let isJustNow = minutes < 1
+        switch s.state {
         case .running:
-            let silencio = Int((agora - s.atualizado) / 60)
-            return silencio >= 10
-                ? tr("· trabalhando, sem sinal há \(silencio) min", "· working, no signal for \(silencio) min")
-                : tr("· trabalhando, \(ha)", agoraEn ? "· working, just now" : "· working for \(minutos) min")
+            let silence = Int((now - s.updated) / 60)
+            return silence >= 10
+                ? tr("· trabalhando, sem sinal há \(silence) min", "· working, no signal for \(silence) min")
+                : tr("· trabalhando, \(ago)", isJustNow ? "· working, just now" : "· working for \(minutes) min")
         case .background: return tr("· em segundo plano: ", "· in background: ") + (s.bg ?? tr("tarefas", "tasks"))
-        case .awaiting: return tr("· precisa de você, \(ha)", agoraEn ? "· needs you, just now" : "· needs you for \(minutos) min")
-        case .done: return tr("· terminou, \(ha)", agoraEn ? "· finished just now" : "· finished \(minutos) min ago")
-        case .idle: return tr("· parado, \(ha)", agoraEn ? "· idle, just now" : "· idle for \(minutos) min")
+        case .awaiting: return tr("· precisa de você, \(ago)", isJustNow ? "· needs you, just now" : "· needs you for \(minutes) min")
+        case .done: return tr("· terminou, \(ago)", isJustNow ? "· finished just now" : "· finished \(minutes) min ago")
+        case .idle: return tr("· parado, \(ago)", isJustNow ? "· idle, just now" : "· idle for \(minutes) min")
         }
     }
 }
 
-struct PlacarView: View {
-    let hoje: Placar
-    let semanaEsp: Double
+struct ScoreboardView: View {
+    let today: Scoreboard
+    let weekWaiting: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(tr("Hoje", "Today")).font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text(tr("7 dias: esperou você ", "7 days: waited for you ") + duracao(semanaEsp)).font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(tr("7 dias: esperou você ", "7 days: waited for you ") + formatDuration(weekWaiting)).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
-                metrica(tr("Agente trabalhando", "Agent working"), duracao(hoje.trab), nil)
-                metrica(tr("Esperando você", "Waiting for you"), duracao(hoje.esp), Color(hex: 0xFAC775))
-                metrica(tr("Sua resposta média", "Your avg. reply"),
-                        hoje.nResp > 0 ? duracao(hoje.tResp / Double(hoje.nResp)) : tr("sem dados", "no data"), nil)
+                metricTile(tr("Agente trabalhando", "Agent working"), formatDuration(today.working), nil)
+                metricTile(tr("Esperando você", "Waiting for you"), formatDuration(today.waiting), Color(hex: 0xFAC775))
+                metricTile(tr("Sua resposta média", "Your avg. reply"),
+                        today.replyCount > 0 ? formatDuration(today.replyTime / Double(today.replyCount)) : tr("sem dados", "no data"), nil)
             }
-            let total = hoje.trab + hoje.esp
+            let total = today.working + today.waiting
             if total > 0 {
                 GeometryReader { geo in
                     HStack(spacing: 0) {
-                        Rectangle().fill(Color(hex: 0x378ADD)).frame(width: geo.size.width * CGFloat(hoje.trab / total))
+                        Rectangle().fill(Color(hex: 0x378ADD)).frame(width: geo.size.width * CGFloat(today.working / total))
                         Rectangle().fill(Color(hex: 0xEF9F27))
                     }
                 }
@@ -1553,11 +1558,11 @@ struct PlacarView: View {
         }
     }
 
-    func metrica(_ rotulo: String, _ valor: String, _ cor: Color?) -> some View {
+    func metricTile(_ label: String, _ valueText: String, _ color: Color?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(rotulo).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
-            Text(valor).font(.system(size: 14, weight: .medium).monospacedDigit())
-                .foregroundStyle(cor ?? Color.primary)
+            Text(label).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            Text(valueText).font(.system(size: 14, weight: .medium).monospacedDigit())
+                .foregroundStyle(color ?? Color.primary)
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1565,20 +1570,20 @@ struct PlacarView: View {
     }
 }
 
-// MARK: - Entrada
+// MARK: - Entry point
 
-let argumentos = CommandLine.arguments
-switch argumentos.count > 1 ? argumentos[1] : "" {
+let args = CommandLine.arguments
+switch args.count > 1 ? args[1] : "" {
 case "hook": runHook(); exit(0)
 case "statusline": runStatusLine(); exit(0)
 case "install": runInstall(); exit(0)
 case "uninstall": runUninstall(); exit(0)
-case "configurar": configurarSemJanela(); exit(0)
-case "fundo-dmg":
-    MainActor.assumeIsolated { gerarFundoDMG(argumentos.count > 2 ? argumentos[2] : ".") }
+case "setup", "configurar": setupWithoutWindow(); exit(0)
+case "dmg-background", "fundo-dmg":
+    MainActor.assumeIsolated { renderDMGBackground(args.count > 2 ? args[2] : ".") }
     exit(0)
-case "icone":
-    MainActor.assumeIsolated { gerarIcone(argumentos.count > 2 ? argumentos[2] : "icone.png") }
+case "icon", "icone":
+    MainActor.assumeIsolated { renderIcon(args.count > 2 ? args[2] : "icon.png") }
     exit(0)
 default: break
 }

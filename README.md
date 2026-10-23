@@ -90,7 +90,7 @@ Requirements: macOS 14 (Sonoma) or later, and Claude Code. The plan usage number
 
 ```bash
 xcode-select --install   # once, for the Swift compiler
-bash gerar-dmg.sh         # builds Psiu.app and Psiu.dmg in this folder
+bash build-dmg.sh         # builds Psiu.app and Psiu.dmg in this folder
 ```
 
 Everything lives in a single file, `Psiu.swift`, with no dependencies.

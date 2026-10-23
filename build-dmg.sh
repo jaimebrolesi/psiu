@@ -1,21 +1,21 @@
 #!/bin/bash
-# Compila o Psiu, monta o Psiu.app com ícone e gera o Psiu.dmg para arrastar em Aplicativos.
+# Compiles Psiu, assembles Psiu.app with its icon and builds Psiu.dmg to drag into Applications.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-versao=$(sw_vers -productVersion | cut -d. -f1)
-if [ "$versao" -lt 14 ]; then
-  echo "O Psiu precisa do macOS 14 (Sonoma) ou mais novo."; exit 1
+version=$(sw_vers -productVersion | cut -d. -f1)
+if [ "$version" -lt 14 ]; then
+  echo "Psiu needs macOS 14 (Sonoma) or later."; exit 1
 fi
 if ! command -v swiftc >/dev/null 2>&1; then
-  echo "Falta o compilador Swift. Rode: xcode-select --install  e depois este script de novo."; exit 1
+  echo "The Swift compiler is missing. Run: xcode-select --install  and then this script again."; exit 1
 fi
 
 app="build/Psiu.app"
 rm -rf build
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-echo "Compilando..."
+echo "Compiling..."
 swiftc -O Psiu.swift -o "$app/Contents/MacOS/Psiu"
 
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -40,47 +40,47 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Textos do Info.plist em português do Brasil; o inglês fica no próprio Info.plist.
+# Info.plist texts in Brazilian Portuguese; the English ones live in Info.plist itself.
 mkdir -p "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/pt-BR.lproj"
 touch "$app/Contents/Resources/en.lproj/InfoPlist.strings"
 cat > "$app/Contents/Resources/pt-BR.lproj/InfoPlist.strings" <<'STRINGS'
 "NSAppleEventsUsageDescription" = "O Psiu traz para a frente a janela do terminal da sessão que você clicar.";
 STRINGS
 
-echo "Desenhando o ícone..."
+echo "Drawing the icon..."
 mkdir -p build/Psiu.iconset
-"$app/Contents/MacOS/Psiu" icone build/icone-1024.png
+"$app/Contents/MacOS/Psiu" icon build/icon-1024.png
 for s in 16 32 128 256 512; do
-  sips -z "$s" "$s" build/icone-1024.png --out "build/Psiu.iconset/icon_${s}x${s}.png" >/dev/null
+  sips -z "$s" "$s" build/icon-1024.png --out "build/Psiu.iconset/icon_${s}x${s}.png" >/dev/null
   d=$((s * 2))
-  sips -z "$d" "$d" build/icone-1024.png --out "build/Psiu.iconset/icon_${s}x${s}@2x.png" >/dev/null
+  sips -z "$d" "$d" build/icon-1024.png --out "build/Psiu.iconset/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns build/Psiu.iconset -o "$app/Contents/Resources/Psiu.icns"
 
-echo "Assinando localmente..."
+echo "Signing locally..."
 codesign --force --deep --sign - "$app"
 
-echo "Desenhando o fundo do instalador..."
-"$app/Contents/MacOS/Psiu" fundo-dmg build
-tiffutil -cathidpicheck build/fundo.png build/fundo@2x.png -out build/fundo.tiff >/dev/null
+echo "Drawing the installer background..."
+"$app/Contents/MacOS/Psiu" dmg-background build
+tiffutil -cathidpicheck build/background.png build/background@2x.png -out build/background.tiff >/dev/null
 
-echo "Montando o .dmg..."
+echo "Assembling the .dmg..."
 mkdir -p build/dmg/.background
 cp -R "$app" build/dmg/
-# O Finder mostra o nome do atalho como está, sem traduzir: fica em inglês, como o fundo bilíngue.
+# Finder shows the link's name as is, without translating it: it stays in English, like the bilingual background.
 ln -s /Applications build/dmg/Applications
-cp build/fundo.tiff build/dmg/.background/fundo.tiff
+cp build/background.tiff build/dmg/.background/background.tiff
 
-# Se sobrou um volume "Psiu" (ou "Psiu 1"...) montado de antes, desmonta: o Finder poderia arrumar o volume errado.
+# If a "Psiu" volume (or "Psiu 1"...) is still mounted from before, detach it: Finder could arrange the wrong one.
 for v in /Volumes/Psiu*; do [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1 || true; done
 
 hdiutil create -srcfolder build/dmg -volname Psiu -fs HFS+ -format UDRW -ov build/rw.dmg >/dev/null
-montagem=$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/.*/Volumes/' | head -1)
-disco=$(echo "$montagem" | awk '{print $1}')
-volume="/Volumes/${montagem#*/Volumes/}"
+mount=$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/.*/Volumes/' | head -1)
+disk=$(echo "$mount" | awk '{print $1}')
+volume="/Volumes/${mount#*/Volumes/}"
 
-# Arruma a janela: fundo, tamanho, ícones grandes e posições alinhadas à seta do fundo.
-# Na primeira vez, o macOS pede para o Terminal (ou o Claude Code) controlar o Finder: aceite.
+# Arranges the window: background, size, large icons and positions lined up with the background's arrow.
+# The first time, macOS asks to let Terminal (or Claude Code) control Finder: allow it.
 if ! osascript <<'APPLESCRIPT'
 tell application "Finder"
     tell disk "Psiu"
@@ -89,11 +89,11 @@ tell application "Finder"
         set toolbar visible of container window to false
         set statusbar visible of container window to false
         set the bounds of container window to {200, 120, 840, 548}
-        set opcoes to the icon view options of container window
-        set arrangement of opcoes to not arranged
-        set icon size of opcoes to 112
-        set text size of opcoes to 13
-        set background picture of opcoes to file ".background:fundo.tiff"
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 112
+        set text size of viewOptions to 13
+        set background picture of viewOptions to file ".background:background.tiff"
         set position of item "Psiu.app" of container window to {170, 190}
         set position of item "Applications" of container window to {470, 190}
         close
@@ -105,21 +105,21 @@ tell application "Finder"
 end tell
 APPLESCRIPT
 then
-  echo "Aviso: não consegui arrumar a janela do instalador (permissão para controlar o Finder?). O .dmg sai sem o fundo."
+  echo "Warning: couldn't arrange the installer window (permission to control Finder?). The .dmg comes out without the background."
 fi
 
-# Ícone do volume montado (mesa, barra lateral e título da janela). Depois do Finder, que o apagaria.
+# Icon of the mounted volume (desktop, sidebar and window title). After Finder, which would erase it.
 cp "$app/Contents/Resources/Psiu.icns" "$volume/.VolumeIcon.icns"
 SetFile -c icnC "$volume/.VolumeIcon.icns"
 SetFile -a C "$volume"
 
 sync
-hdiutil detach "$disco" >/dev/null
+hdiutil detach "$disk" >/dev/null
 rm -f Psiu.dmg
 hdiutil convert build/rw.dmg -format UDZO -o Psiu.dmg >/dev/null
-# Ícone do próprio arquivo .dmg. Fica nos atributos do arquivo: vale nesta máquina, mas não sobrevive ao download.
+# Icon of the .dmg file itself. It lives in the file's attributes: it works on this Mac but doesn't survive a download.
 osascript -l JavaScript -e 'ObjC.import("AppKit"); $.NSWorkspace.sharedWorkspace.setIconForFileOptions($.NSImage.alloc.initWithContentsOfFile("build/Psiu.app/Contents/Resources/Psiu.icns"), "Psiu.dmg", 0)' >/dev/null
 rm -rf build/dmg build/rw.dmg
 
-echo "Pronto: $(pwd)/Psiu.dmg"
-echo "Abra o .dmg, arraste o Psiu para Aplicativos e abra o Psiu de lá."
+echo "Done: $(pwd)/Psiu.dmg"
+echo "Open the .dmg, drag Psiu into Applications and open Psiu from there."
