@@ -55,6 +55,12 @@ echo "Uninstall"
 psiu uninstall >/dev/null
 check "settings.json back to the original" python3 -c "import json, sys; sys.exit(0 if json.load(open(sys.argv[1])) == json.load(open(sys.argv[2])) else 1)" "$S" "$T/original.json"
 
+echo "Invalid settings.json"
+printf '{"theme": dark' > "$S"
+cp "$S" "$T/broken.json"
+check "install refuses it with exit 1" bash -c '! HOME="$1" "$2" install -AppleLanguages "(en-US)" >/dev/null' _ "$T" "$P"
+check "install leaves it untouched" cmp -s "$S" "$T/broken.json"
+
 echo "Binary"
 check "universal (Apple silicon and Intel)" test "$(lipo -archs "$P" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 "
 for arch in arm64 x86_64; do
