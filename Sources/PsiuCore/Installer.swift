@@ -2,12 +2,18 @@ import Foundation
 
 // MARK: - Install and uninstall in Claude Code's settings.json
 
-func loadSettings(_ paths: PsiuPaths) -> (dict: [String: Any], rawData: Data?) {
-    guard let data = try? Data(contentsOf: paths.settings) else { return ([:], nil) }
-    guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-        print(tr("O ~/.claude/settings.json não é um JSON válido. Nada foi alterado.", "~/.claude/settings.json is not valid JSON. Nothing was changed."))
-        exit(1)
+/// ~/.claude/settings.json exists but isn't valid JSON: Psiu changes nothing.
+public enum SettingsError: Error, LocalizedError {
+    case invalidJSON
+
+    public var errorDescription: String? {
+        tr("O ~/.claude/settings.json não é um JSON válido. Nada foi alterado.", "~/.claude/settings.json is not valid JSON. Nothing was changed.")
     }
+}
+
+func loadSettings(_ paths: PsiuPaths) throws -> (dict: [String: Any], rawData: Data?) {
+    guard let data = try? Data(contentsOf: paths.settings) else { return ([:], nil) }
+    guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw SettingsError.invalidJSON }
     return (obj, data)
 }
 
@@ -51,10 +57,10 @@ public let hookEvents: [(String, String?)] = [
 ]
 
 /// `Psiu install`: adds Psiu's hooks and status line to Claude Code's settings.json, keeping the original as a backup.
-public func runInstall(paths: PsiuPaths = .current, executable: String = executablePath) {
+public func runInstall(paths: PsiuPaths = .current, executable: String = executablePath) throws {
     paths.ensureDirectories()
     try? FileManager.default.createDirectory(at: paths.settings.deletingLastPathComponent(), withIntermediateDirectories: true)
-    var (settings, rawData) = loadSettings(paths)
+    var (settings, rawData) = try loadSettings(paths)
     backup(rawData, paths)
 
     let hookCommand = "\"\(executable)\" hook"
@@ -83,8 +89,8 @@ public func runInstall(paths: PsiuPaths = .current, executable: String = executa
 }
 
 /// `Psiu uninstall`: removes Psiu's hooks and status line from settings.json; your previous status line comes back.
-public func runUninstall(paths: PsiuPaths = .current) {
-    var (settings, rawData) = loadSettings(paths)
+public func runUninstall(paths: PsiuPaths = .current) throws {
+    var (settings, rawData) = try loadSettings(paths)
     guard rawData != nil else { print(tr("Não há settings.json. Nada a desfazer.", "There is no settings.json. Nothing to undo.")); return }
     backup(rawData, paths)
 

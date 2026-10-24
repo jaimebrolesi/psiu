@@ -14,12 +14,17 @@
 import AppKit
 import PsiuCore
 
+/// Runs a step that changes settings.json; if that file isn't valid JSON, nothing changes and Psiu exits with 1.
+func runOrExit(_ step: () throws -> Void) {
+    do { try step() } catch { print(error.localizedDescription); exit(1) }
+}
+
 let args = CommandLine.arguments
 switch args.count > 1 ? args[1] : "" {
 case "hook": runHook(); exit(0)
 case "statusline": runStatusLine(); exit(0)
-case "install": runInstall(); exit(0)
-case "uninstall": runUninstall(); exit(0)
+case "install": runOrExit { try runInstall() }; exit(0)
+case "uninstall": runOrExit { try runUninstall() }; exit(0)
 case "setup", "configurar": setupWithoutWindow(); exit(0)
 case "dmg-background", "fundo-dmg":
     MainActor.assumeIsolated { renderDMGBackground(args.count > 2 ? args[2] : ".") }

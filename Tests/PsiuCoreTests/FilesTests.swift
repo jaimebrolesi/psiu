@@ -86,8 +86,8 @@ struct InstallerTests {
         try Data(original.utf8).write(to: p.settings)
 
         #expect(!isPsiuConnected(paths: p, executable: psiuExecutable))
-        runInstall(paths: p, executable: psiuExecutable)
-        runInstall(paths: p, executable: psiuExecutable)
+        try runInstall(paths: p, executable: psiuExecutable)
+        try runInstall(paths: p, executable: psiuExecutable)
         let s = json(p.settings)
         for (event, _) in hookEvents {
             #expect(hookCommands(s, event).filter { $0.contains(psiuExecutable) } == ["\"\(psiuExecutable)\" hook"], "\(event)")
@@ -99,7 +99,7 @@ struct InstallerTests {
         #expect(!isMissingHooks(paths: p, executable: psiuExecutable))
         #expect(try String(contentsOf: p.previousStatusLine, encoding: .utf8) == "echo mine")
 
-        runUninstall(paths: p)
+        try runUninstall(paths: p)
         let after = json(p.settings)
         #expect(after["theme"] as? String == "dark")
         #expect((after["statusLine"] as? [String: Any])?["command"] as? String == "echo mine")
@@ -110,9 +110,53 @@ struct InstallerTests {
         #expect(backups.count == 1)
     }
 
+    @Test func settingsComeOutInTheSameOrderEveryTime() throws {
+        let home = TemporaryHome(), p = home.paths
+        try FileManager.default.createDirectory(at: p.settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"zeta":1,"alpha":{"b":2,"a":1},"theme":"dark"}"#.utf8).write(to: p.settings)
+        try runInstall(paths: p, executable: psiuExecutable)
+        let first = try Data(contentsOf: p.settings)
+        try runInstall(paths: p, executable: psiuExecutable)
+        #expect(try Data(contentsOf: p.settings) == first)
+        let text = String(decoding: first, as: UTF8.self)
+        let order = ["\"alpha\"", "\"hooks\"", "\"statusLine\"", "\"theme\"", "\"zeta\""].map { text.range(of: $0)!.lowerBound }
+        #expect(order == order.sorted())
+    }
+
+    @Test func invalidSettingsChangeNothing() throws {
+        let home = TemporaryHome(), p = home.paths, fm = FileManager.default
+        let dir = p.settings.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let broken = Data(#"{"theme": dark"#.utf8)
+        try broken.write(to: p.settings)
+        #expect(throws: SettingsError.invalidJSON) { try runInstall(paths: p, executable: psiuExecutable) }
+        #expect(throws: SettingsError.invalidJSON) { try runUninstall(paths: p) }
+        #expect(try Data(contentsOf: p.settings) == broken)
+        #expect(try fm.contentsOfDirectory(atPath: dir.path) == ["settings.json"])   // no backup either
+        #expect(!fm.fileExists(atPath: p.previousStatusLine.path))
+    }
+
+    @Test func keepsOnlyTheOldestBackup() throws {
+        let home = TemporaryHome(), p = home.paths, fm = FileManager.default
+        let dir = p.settings.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        for name in ["settings.json.farol-backup-100", "settings.json.psiu-backup-200", "settings.json.psiu-backup-300"] {
+            try Data("{}".utf8).write(to: dir.appendingPathComponent(name))
+        }
+        try Data("{}".utf8).write(to: p.settings)
+        try runInstall(paths: p, executable: psiuExecutable)
+        #expect(try fm.contentsOfDirectory(atPath: dir.path).sorted() == ["settings.json", "settings.json.farol-backup-100"])
+    }
+
+    @Test func uninstallWithoutSettingsDoesNothing() throws {
+        let home = TemporaryHome(), p = home.paths
+        try runUninstall(paths: p)
+        #expect(!FileManager.default.fileExists(atPath: p.settings.path))
+    }
+
     @Test func noticesHooksMissingFromAnOlderInstall() throws {
         let home = TemporaryHome(), p = home.paths
-        runInstall(paths: p, executable: psiuExecutable)
+        try runInstall(paths: p, executable: psiuExecutable)
         var s = json(p.settings)
         var hooks = s["hooks"] as? [String: Any] ?? [:]
         hooks["PreCompact"] = nil

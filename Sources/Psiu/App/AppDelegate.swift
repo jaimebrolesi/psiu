@@ -112,7 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if isPsiuConnected() {
             // Installs from older versions lack newer hook events: add them quietly (the original backup is kept).
-            if isMissingHooks() { runInstall() }
+            if isMissingHooks() { _ = installOrAlert() }
             return
         }
         var text = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard showAlert(tr("Ligar o Psiu ao Claude Code?", "Connect Psiu to Claude Code?"), text,
                     buttons: [tr("Ligar", "Connect"), tr("Agora não", "Not now")]) == 0 else { return }
         migrateFromFarol()
-        runInstall()
+        guard installOrAlert() else { return }
         var doneMessage = tr("Reinicie as sessões do Claude Code que estiverem abertas.", "Restart any Claude Code sessions that are open.")
         do {
             try SMAppService.mainApp.register()
@@ -136,13 +136,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = showAlert(tr("Psiu ligado", "Psiu is connected"), doneMessage)
     }
 
+    /// Connects Psiu to Claude Code; if settings.json isn't valid JSON, says so instead of quitting.
+    func installOrAlert() -> Bool {
+        do { try runInstall(); return true } catch { showSettingsError(); return false }
+    }
+
+    func showSettingsError() {
+        _ = showAlert(tr("O settings.json do Claude Code está com erro", "Claude Code's settings.json has an error"),
+                      tr("O ~/.claude/settings.json não é um JSON válido, então não mudei nada. Corrija o arquivo e tente de novo.",
+                         "~/.claude/settings.json is not valid JSON, so nothing was changed. Fix the file and try again."))
+    }
+
     func uninstall() {
         let r = showAlert(tr("Desinstalar o Psiu?", "Uninstall Psiu?"),
                       tr("Removo os hooks e a status line do Claude Code (a sua status line anterior volta) e tiro o Psiu do login. Depois, é só arrastar o Psiu de Aplicativos para o Lixo.",
                          "I'll remove the hooks and status line from Claude Code (your previous status line comes back) and take Psiu out of your login items. Then just drag Psiu from Applications to the Trash."),
                       buttons: [tr("Desinstalar", "Uninstall"), tr("Cancelar", "Cancel")])
         guard r == 0 else { return }
-        runUninstall()
+        do { try runUninstall() } catch { showSettingsError(); return }
         try? SMAppService.mainApp.unregister()
         try? FileManager.default.removeItem(at: paths.base)
         try? FileManager.default.removeItem(at: paths.farol)

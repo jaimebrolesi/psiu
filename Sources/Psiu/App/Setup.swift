@@ -5,7 +5,7 @@ import ServiceManagement
 /// `Psiu setup`: connects Psiu without a window: migrates Farol, writes hooks and status line, and registers open at login.
 func setupWithoutWindow() {
     migrateFromFarol()
-    runInstall()
+    runOrExit { try runInstall() }
     do {
         try SMAppService.mainApp.register()
         print(SMAppService.mainApp.status == .requiresApproval

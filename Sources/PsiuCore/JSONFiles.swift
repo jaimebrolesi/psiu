@@ -8,8 +8,9 @@ func readJSON(_ url: URL) -> [String: Any]? {
     return (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
 }
 
+/// Pretty output sorts its keys, so the user's settings.json comes out in the same order on every install.
 func writeJSON(_ obj: [String: Any], to url: URL, pretty: Bool = false) {
-    let opts: JSONSerialization.WritingOptions = pretty ? [.prettyPrinted, .withoutEscapingSlashes] : []
+    let opts: JSONSerialization.WritingOptions = pretty ? [.prettyPrinted, .withoutEscapingSlashes, .sortedKeys] : []
     do {
         let d = try JSONSerialization.data(withJSONObject: obj, options: opts)
         try d.write(to: url, options: .atomic)
