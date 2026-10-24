@@ -1,4 +1,8 @@
+import PsiuCore
 import SwiftUI
+
+/// The robot's look, picked by the Store from the sessions' states.
+enum RobotColor { case red, burnt, yellow, blue, backgroundBlue, green, dimGreen, gray }
 
 /// Builds a path from SVG path data with absolute M, C and Z commands.
 private func svgPath(_ d: String) -> Path {

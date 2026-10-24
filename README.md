@@ -101,7 +101,7 @@ xcode-select --install   # once, for the Swift compiler
 bash build-dmg.sh         # builds Psiu.app and Psiu.dmg in this folder
 ```
 
-Everything lives in a single file, `Psiu.swift`, with no dependencies.
+It is a Swift package with no dependencies: `Sources/PsiuCore` has the logic (hooks, status line, installer and the rules behind the robot) and `Sources/Psiu` the app on screen. `bash test.sh` runs the unit tests and checks the built app.
 
 ## How it works
 

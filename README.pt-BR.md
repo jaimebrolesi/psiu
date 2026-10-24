@@ -99,7 +99,7 @@ xcode-select --install   # uma vez, para ter o compilador Swift
 bash build-dmg.sh         # gera o Psiu.app e o Psiu.dmg nesta pasta
 ```
 
-Tudo fica num único arquivo, `Psiu.swift`, sem dependências.
+É um pacote Swift sem dependências: `Sources/PsiuCore` tem a lógica (hooks, status line, instalador e as regras por trás do robô) e `Sources/Psiu`, o app na tela. `bash test.sh` roda os testes de unidade e confere o app gerado.
 
 ## Como funciona
 

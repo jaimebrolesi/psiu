@@ -1,6 +1,6 @@
 #!/bin/bash
-# Command-line tests for a built Psiu (bash build-dmg.sh first). Everything runs in a temporary home,
-# so your real ~/.claude and ~/.psiu stay untouched. Exits with non-zero status on any failure.
+# Tests for a built Psiu (bash build-dmg.sh first): the command line, the binary, the images and the unit tests.
+# Everything runs in a temporary home, so your real ~/.claude and ~/.psiu stay untouched. Exits with non-zero status on any failure.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -76,6 +76,21 @@ check "installer background 1x is 640 x 400" test "$(size build/background.png)"
 check "installer background 2x is 1280 x 800" test "$(size build/background@2x.png)" = "1280 800 "
 check "icon has drawing in it" test "$(stat -f %z build/icon-1024.png)" -gt 20000
 check "background has drawing in it" test "$(stat -f %z build/background@2x.png)" -gt 100000
+
+echo "Unit tests"
+# With only the Command Line Tools (no Xcode), Swift Testing lives where swift test doesn't look by itself.
+extra=()
+if [ "$(xcode-select -p 2>/dev/null)" = /Library/Developer/CommandLineTools ]; then
+  F=/Library/Developer/CommandLineTools/Library/Developer
+  extra=(-Xswiftc -F -Xswiftc "$F/Frameworks" -Xlinker -F -Xlinker "$F/Frameworks"
+         -Xlinker -rpath -Xlinker "$F/Frameworks" -Xlinker -rpath -Xlinker "$F/usr/lib")
+fi
+if swift test ${extra[@]+"${extra[@]}"} > "$T/swift-test.log" 2>&1; then
+  pass "swift test: $(grep -Eo '[0-9]+ tests in [0-9]+ suites' "$T/swift-test.log" | tail -1)"
+else
+  grep -E 'error|✘' "$T/swift-test.log" | head -40
+  fail "swift test"
+fi
 
 if [ "$failures" -gt 0 ]; then echo "$failures test(s) failed."; exit 1; fi
 echo "All tests passed."

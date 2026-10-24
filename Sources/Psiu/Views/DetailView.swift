@@ -1,8 +1,9 @@
 import AppKit
+import PsiuCore
 import SwiftUI
 
 struct DetailView: View {
-    @ObservedObject var store: Store
+    let store: Store
     var onOpen: (Session) -> Void = { _ in }
 
     var body: some View {
@@ -53,7 +54,7 @@ struct LimitView: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.12))
                         if overflow != nil {
-                            Rectangle().fill(Color(hex: 0xEF9F27, alpha: 0.4))
+                            Rectangle().fill(Palette.forecastOverflow)
                                 .frame(width: max(0, w - used)).offset(x: used)
                         }
                         Capsule().fill(usageColor(j.pct)).frame(width: used)
@@ -66,7 +67,7 @@ struct LimitView: View {
                     Spacer()
                     if let e = overflow {
                         Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + shortTime(e))
-                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Color(hex: 0xFAC775))
+                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.warning)
                     } else if headroom {
                         Text(tr("No ritmo atual, dá folga", "At this pace, plenty left")).font(.system(size: 10)).foregroundStyle(.secondary)
                     }
@@ -89,8 +90,8 @@ struct SessionView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Circle().fill(waited >= Sounds.panicAfter ? Color(hex: 0xE24B4A)
-                          : isHeavy ? Color(hex: 0xAFA9EC) : stateColor(s.state))
+            Circle().fill(waited >= Sounds.panicAfter ? Palette.panic
+                          : isHeavy ? Palette.tired : stateColor(s.state))
                 .frame(width: 8, height: 8).padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -98,9 +99,9 @@ struct SessionView: View {
                     Text(label).font(.system(size: 10)).foregroundStyle(.secondary)
                     if s.compactions > 0 {
                         Text(tr("compactada \(s.compactions)x", "compacted \(s.compactions)x"))
-                            .font(.system(size: 10)).foregroundStyle(Color(hex: 0xCECBF6))
+                            .font(.system(size: 10)).foregroundStyle(Palette.tiredText)
                             .padding(.horizontal, 5).padding(.vertical, 1)
-                            .overlay(Capsule().stroke(Color(hex: 0xAFA9EC, alpha: 0.55), lineWidth: 1))
+                            .overlay(Capsule().stroke(Palette.tiredOutline, lineWidth: 1))
                             .fixedSize()   // the label gives way, not the tag
                     }
                     Image(systemName: "arrow.up.forward").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
@@ -113,7 +114,7 @@ struct SessionView: View {
                 if s.state == .done && s.compactions > 0 {
                     Text(tr("Sugestão: limpe a sessão (/clear) antes do próximo pedido.",
                             "Tip: clear the session (/clear) before your next prompt."))
-                        .font(.system(size: 10)).foregroundStyle(Color(hex: 0xCECBF6))
+                        .font(.system(size: 10)).foregroundStyle(Palette.tiredText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -122,9 +123,9 @@ struct SessionView: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     Text(tr("contexto", "context") + " \(Int(c.rounded()))%")
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(c >= 80 ? Color(hex: 0xAFA9EC) : (c >= 70 ? Color.orange : Color.secondary))
+                        .foregroundStyle(c >= 80 ? Palette.tired : (c >= 70 ? Color.orange : Color.secondary))
                     ProgressView(value: min(c, 100), total: 100)
-                        .tint(c >= 80 ? Color(hex: 0xAFA9EC) : usageColor(c)).frame(width: 60)
+                        .tint(c >= 80 ? Palette.tired : usageColor(c)).frame(width: 60)
                 }
             }
         }
@@ -159,6 +160,8 @@ struct SessionView: View {
     }
 }
 
+let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+
 /// The installed version, at the bottom of the panel. A click asks macOS to open its release page;
 /// Psiu itself never goes online.
 struct VersionView: View {
@@ -188,7 +191,7 @@ struct ScoreboardView: View {
             }
             HStack(spacing: 6) {
                 metricTile(tr("Agente trabalhando", "Agent working"), formatDuration(today.working), nil)
-                metricTile(tr("Esperando você", "Waiting for you"), formatDuration(today.waiting), Color(hex: 0xFAC775))
+                metricTile(tr("Esperando você", "Waiting for you"), formatDuration(today.waiting), Palette.warning)
                 metricTile(tr("Sua resposta média", "Your avg. reply"),
                         today.replyCount > 0 ? formatDuration(today.replyTime / Double(today.replyCount)) : tr("sem dados", "no data"), nil)
             }
@@ -196,8 +199,8 @@ struct ScoreboardView: View {
             if total > 0 {
                 GeometryReader { geo in
                     HStack(spacing: 0) {
-                        Rectangle().fill(Color(hex: 0x378ADD)).frame(width: geo.size.width * CGFloat(today.working / total))
-                        Rectangle().fill(Color(hex: 0xEF9F27))
+                        Rectangle().fill(Palette.working).frame(width: geo.size.width * CGFloat(today.working / total))
+                        Rectangle().fill(Palette.waiting)
                     }
                 }
                 .frame(height: 5)

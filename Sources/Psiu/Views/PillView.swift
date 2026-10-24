@@ -1,11 +1,12 @@
 import AppKit
+import PsiuCore
 import SwiftUI
 
 struct PillView: View {
-    @ObservedObject var store: Store
+    let store: Store
     let app: AppDelegate
     let displayID: CGDirectDisplayID
-    @ObservedObject var geo: PanelGeometry
+    let geo: PanelGeometry
 
     var radius: CGFloat { geo.isOpen ? 24 : 9 }
 
@@ -17,7 +18,7 @@ struct PillView: View {
                     HStack(spacing: 6) {
                         usage
                         Spacer(minLength: 0)
-                        if store.greenDot { Circle().fill(Color(hex: 0x97C459)).frame(width: 5, height: 5) }
+                        if store.greenDot { Circle().fill(Palette.finishedDot).frame(width: 5, height: 5) }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
@@ -64,7 +65,8 @@ struct PillView: View {
                     set: { store.muted = $0; app.savePrefs() }))
                 Button(tr("Testar sons", "Test sounds")) {
                     NSSound(named: NSSound.Name(Sounds.permission))?.play()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
                         NSSound(named: NSSound.Name(Sounds.finished))?.play()
                     }
                 }

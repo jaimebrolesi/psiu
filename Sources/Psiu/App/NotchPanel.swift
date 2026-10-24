@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 // MARK: - Notch window
@@ -13,18 +14,18 @@ final class Host: NSHostingView<PillView> {
 }
 
 /// Geometry and open state of a panel (one per screen).
-@MainActor
-final class PanelGeometry: ObservableObject {
-    @Published var isOpen = false
-    @Published var w: CGFloat = 230   // closed: notch width + ears
-    @Published var h: CGFloat = 32    // closed: menu bar height
-    @Published var W: CGFloat = 330   // open
-    @Published var H: CGFloat = 260
-    var screenFrame: NSRect = .zero
+@Observable @MainActor
+final class PanelGeometry {
+    var isOpen = false
+    var w: CGFloat = 230   // closed: notch width + ears
+    var h: CGFloat = 32    // closed: menu bar height
+    var W: CGFloat = 330   // open
+    var H: CGFloat = 260
+    @ObservationIgnored var screenFrame: NSRect = .zero
 
     /// Closed: extra width on each side while a dot is lit, so the dot clears the physical notch.
-    @Published var dotsRoom: CGFloat = 0
-    var hasNotch = false
+    var dotsRoom: CGFloat = 0
+    @ObservationIgnored var hasNotch = false
     /// Closed width, with room for the dots when needed.
     var closedWidth: CGFloat { w + 2 * dotsRoom }
     /// A dot (5) and its gap to the robot (6), plus 3 so it doesn't touch the notch's edge.

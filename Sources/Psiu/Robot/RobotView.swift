@@ -1,18 +1,9 @@
 import AppKit
-import SwiftUI
+import PsiuCore
 import QuartzCore
+import SwiftUI
 
 // MARK: - Robot
-
-extension Color {
-    init(hex: UInt32, alpha: Double = 1) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: alpha)
-    }
-}
 
 /// Robot head with LED eyes. Drawn on a 60 x 46 grid by drawRobot, animated by Core Animation
 /// (see RobotLayerView), so the app itself does no work while the robot moves.
@@ -67,7 +58,7 @@ final class RobotLayerView: NSView {
     private var revivingUntil: Date?
     private var paused = false
     private var built: (look: RobotLook, size: CGSize, scale: CGFloat)?
-    private var rebuildLater: DispatchWorkItem?
+    private var rebuildLater: Task<Void, Never>?
 
     private let root = CALayer()
     private let stage = CALayer()
@@ -124,9 +115,11 @@ final class RobotLayerView: NSView {
         stage.transform = CATransform3DMakeScale(k, k, 1)
         CATransaction.commit()
         rebuildLater?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.rebuild() }
-        rebuildLater = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        rebuildLater = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.rebuild()
+        }
     }
 
     override func viewDidChangeBackingProperties() {

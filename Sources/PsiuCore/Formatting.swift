@@ -1,6 +1,6 @@
 import Foundation
 
-func formatDuration(_ seconds: Double) -> String {
+public func formatDuration(_ seconds: Double) -> String {
     let m = Int(seconds / 60)
     if m >= 60 { return "\(m / 60)h \(m % 60)min" }
     if m >= 1 { return "\(m) min" }
@@ -10,7 +10,7 @@ func formatDuration(_ seconds: Double) -> String {
 /// One formatter per format, made once: creating a DateFormatter on every redraw of the panel is costly.
 @MainActor private var shortTimeFormatters: [String: DateFormatter] = [:]
 
-@MainActor func shortTime(_ epoch: Double, _ format: String = "HH'h'mm") -> String {
+@MainActor public func shortTime(_ epoch: Double, _ format: String = "HH'h'mm") -> String {
     let f = shortTimeFormatters[format] ?? {
         let f = DateFormatter()
         if isPortuguese {

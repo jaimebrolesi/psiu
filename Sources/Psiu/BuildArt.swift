@@ -1,4 +1,5 @@
 import AppKit
+import PsiuCore
 import SwiftUI
 
 /// Draws the app icon (1024 px) with the robot's head.
@@ -6,7 +7,7 @@ import SwiftUI
 func renderIcon(_ outputPath: String) {
     let view = ZStack {
         RoundedRectangle(cornerRadius: 185, style: .continuous)
-            .fill(Color(hex: 0x1C1C1E))
+            .fill(Palette.iconBackground)
             .frame(width: 824, height: 824)
         Canvas { g, size in drawRobot(&g, size, .green, false, 0) }
             .frame(width: 620, height: 475)
@@ -30,8 +31,8 @@ struct DMGBackground: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0x17181B)
-            RadialGradient(colors: [Color(hex: 0x24364F, alpha: 0.6), .clear],
+            Palette.installerBackground
+            RadialGradient(colors: [Palette.installerGlow, .clear],
                            center: UnitPoint(x: 0.5, y: 0.48), startRadius: 10, endRadius: 380)
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
@@ -48,9 +49,9 @@ struct DMGBackground: View {
             // a light plate behind each name keeps them readable.
             labelPlate(58).position(x: Self.app.x, y: 265)
             labelPlate(98).position(x: Self.folder.x, y: 265)
-            curve.stroke(Color(hex: 0x97C459),
+            curve.stroke(Palette.arrow,
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [0.1, 9]))
-            arrowhead.stroke(Color(hex: 0x97C459),
+            arrowhead.stroke(Palette.arrow,
                          style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             Text("Arraste o Psiu para Aplicativos\nDrag Psiu to Applications")
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(Color.white.opacity(0.6))
@@ -61,7 +62,7 @@ struct DMGBackground: View {
     }
 
     func labelPlate(_ plateWidth: CGFloat) -> some View {
-        Capsule().fill(Color(hex: 0xE4E7EC)).frame(width: plateWidth, height: 22)
+        Capsule().fill(Palette.labelPlate).frame(width: plateWidth, height: 22)
     }
 
     private let startPoint = CGPoint(x: 252, y: 192)

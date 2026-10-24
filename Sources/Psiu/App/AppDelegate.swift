@@ -1,12 +1,14 @@
 import AppKit
-import SwiftUI
+import PsiuCore
 import ServiceManagement
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let paths = PsiuPaths.current
     let store = Store()
     var panels: [CGDirectDisplayID: (panel: NotchPanel, host: Host, geo: PanelGeometry)] = [:]
-    var timer: Timer?
+    private var refreshLoop: Task<Void, Never>?
     var clickMonitor: Any?
     var hiddenScreens = Set<String>()
     let springAnimation = Animation.spring(response: 0.45, dampingFraction: 0.86)
@@ -40,11 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ensureDirs()
+        paths.ensureDirectories()
         watchDisplayVisibility()
-        let prefs = readJSON(prefsFile) ?? [:]
-        store.muted = prefs["mudo"] as? Bool ?? false
-        hiddenScreens = Set(prefs["ocultas"] as? [String] ?? [])
+        let prefs = readFile(Prefs.self, at: paths.prefs) ?? Prefs()
+        store.muted = prefs.muted ?? false
+        hiddenScreens = Set(prefs.hiddenScreens ?? [])
 
         syncPanels()
         NotificationCenter.default.addObserver(
@@ -57,16 +59,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.closeAll() }
         }
         store.reload()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.store.reload()
-                self?.updateDotsRoom()
-                self?.checkDemo()
+        // Every half second: read what the hooks wrote, then adjust the notch.
+        refreshLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self else { return }
+                self.store.reload()
+                self.updateDotsRoom()
+                self.checkDemo()
             }
         }
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.checkInstallation() }
-        }
+        Task { [weak self] in self?.checkInstallation() }
     }
 
     // MARK: Demo (used by record-demo.sh)
@@ -74,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var openedByDemo = false
 
     func checkDemo() {
-        let requested = fm.fileExists(atPath: baseDir.appendingPathComponent("demo-panel").path)
+        let requested = FileManager.default.fileExists(atPath: paths.demoPanel.path)
         if requested && !openedByDemo {
             let mainID = NSScreen.screens.first.map { displayID($0) }
             if let id = mainID.flatMap({ panels[$0] != nil ? $0 : nil }) ?? panels.keys.first {
@@ -99,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func checkInstallation() {
-        if binPath.hasPrefix("/Volumes/") || binPath.contains("/AppTranslocation/") {
+        if executablePath.hasPrefix("/Volumes/") || executablePath.contains("/AppTranslocation/") {
             _ = showAlert(tr("Arraste o Psiu para Aplicativos", "Drag Psiu to Applications"),
                       tr("Ele está rodando de dentro do instalador. Arraste o Psiu para a pasta Aplicativos e abra de lá.",
                          "It's running from inside the installer. Drag Psiu to the Applications folder and open it from there."))
@@ -113,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         var text = tr("O Psiu grava os hooks e a status line em ~/.claude/settings.json, guardando um backup do original, e passa a abrir quando você entra no Mac. Nada sai do seu computador.",
                        "Psiu adds its hooks and status line to ~/.claude/settings.json, keeping a backup of the original, and opens when you log in to your Mac. Nothing leaves your computer.")
-        if hasFarol { text += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
+        if hasFarol() { text += tr("\n\nO Farol, a versão anterior, será desligado e substituído. O placar e as preferências vêm junto.",
                                   "\n\nFarol, the previous version, will be turned off and replaced. Your scoreboard and preferences come along.") }
         guard showAlert(tr("Ligar o Psiu ao Claude Code?", "Connect Psiu to Claude Code?"), text,
                     buttons: [tr("Ligar", "Connect"), tr("Agora não", "Not now")]) == 0 else { return }
@@ -140,8 +143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard r == 0 else { return }
         runUninstall()
         try? SMAppService.mainApp.unregister()
-        try? fm.removeItem(at: baseDir)
-        try? fm.removeItem(at: home.appendingPathComponent(".farol"))
+        try? FileManager.default.removeItem(at: paths.base)
+        try? FileManager.default.removeItem(at: paths.farol)
         NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
         NSApp.terminate(nil)
     }
@@ -180,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func savePrefs() {
-        writeJSON(["mudo": store.muted, "ocultas": Array(hiddenScreens)], to: prefsFile)
+        writeFile(Prefs(muted: store.muted, hiddenScreens: Array(hiddenScreens)), to: paths.prefs)
     }
 
     func makePanel(_ id: CGDirectDisplayID) -> (panel: NotchPanel, host: Host, geo: PanelGeometry) {
@@ -247,11 +250,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 // Shrinking: the notch first, then the window.
                 withAnimation(springAnimation) { entry.geo.dotsRoom = target }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
-                        self.applyFrame(entry)
-                    }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
+                    self.applyFrame(entry)
                 }
             }
         }
@@ -284,11 +286,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let entry = panels[id], entry.geo.isOpen else { return }
         withAnimation(springAnimation) { entry.geo.isOpen = false }
         // After the notch collapses, the window goes back to the notch size and frees the menu bar.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
-                self.applyFrame(entry)
-            }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
+            self.applyFrame(entry)
         }
     }
 
