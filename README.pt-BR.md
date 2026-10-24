@@ -67,7 +67,7 @@ Clique no notch e ele se estica para baixo, virando um painel. Clique de novo, o
 </p>
 
 - **Janela de 5 horas e semana,** com o horário de renovação. Pelo ritmo da última hora, o Psiu avisa se o consumo atual estoura a janela de 5 horas antes de ela renovar.
-- **Cada sessão,** com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app.
+- **Cada sessão** (as cinco mais recentes, mais a contagem das outras), com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app.
 - **Sessões compactadas** ganham a etiqueta "compactada Nx" e, quando terminam, a sugestão de limpar a sessão (`/clear`) antes do próximo pedido.
 - **Hoje:** quanto tempo os agentes trabalharam, quanto tempo esperaram por você e sua resposta média, mais o acumulado de 7 dias e quantos Psius queimaram esperando você. Um espelho pequeno e honesto.
 

@@ -6,6 +6,15 @@ struct DetailView: View {
     let store: Store
     var onOpen: (Session) -> Void = { _ in }
 
+    /// The panel lists this many sessions, the newest; the rest are counted below them.
+    static let maxSessions = 5
+
+    static func moreSessionsText(_ total: Int) -> String? {
+        let n = total - maxSessions
+        guard n > 0 else { return nil }
+        return n == 1 ? tr("+1 sessão", "+1 more session") : tr("+\(n) sessões", "+\(n) more sessions")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             LimitView(title: tr("Sessão de 5 horas", "5-hour session"), usageWindow: store.fiveHour, format: "HH:mm",
@@ -16,10 +25,13 @@ struct DetailView: View {
                 Text(tr("Nenhuma sessão do Claude Code aberta.", "No Claude Code sessions open."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
-                ForEach(store.sessions.prefix(5)) { s in
+                ForEach(store.sessions.prefix(Self.maxSessions)) { s in
                     SessionView(s: s)
                         .contentShape(Rectangle())
                         .onTapGesture { onOpen(s) }
+                }
+                if let more = Self.moreSessionsText(store.sessions.count) {
+                    Text(more).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
             Divider()

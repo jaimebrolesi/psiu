@@ -67,7 +67,7 @@ Click the notch and it stretches down into a panel. Click it again, or anywhere 
 </p>
 
 - **5-hour window and week**, with when they reset. Based on the last hour, Psiu tells you if your current pace runs out the 5-hour window before it resets.
-- **Every session**, with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
+- **Every session** (the five newest, plus a count of the others), with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
 - **Compacted sessions** get a "compacted Nx" tag, and once they finish, a tip to clear the session (`/clear`) before your next prompt.
 - **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days, and how many Psius burnt out waiting for you. A small, honest mirror.
 
