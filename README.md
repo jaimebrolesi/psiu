@@ -73,7 +73,7 @@ Click the notch and it stretches down into a panel. Click it again, or anywhere 
 
 The installed version shows at the bottom of the panel; click it to open that version's release page.
 
-Right-click the robot for: **Show on** (pick which displays), **Mute sounds**, **Test sounds**, **Quit** and **Uninstall**.
+Right-click the robot for: **Show on** (pick which displays), **Mute sounds**, **Test sounds**, **Quit Psiu** and **Uninstall Psiu…**.
 
 On displays without a notch, like an external monitor, Psiu draws a notch of the same size at the top of the screen.
 
@@ -98,7 +98,7 @@ Requirements: macOS 14 (Sonoma) or later, on Apple silicon or Intel, and Claude 
 
 ```bash
 xcode-select --install   # once, for the Swift compiler
-bash build-dmg.sh         # builds Psiu.app and Psiu.dmg in this folder
+bash build-dmg.sh         # builds build/Psiu.app and Psiu.dmg in this folder
 ```
 
 It is a Swift package with no dependencies: `Sources/PsiuCore` has the logic (hooks, status line, installer and the rules behind the robot) and `Sources/Psiu` the app on screen. `bash test.sh` runs the unit tests and checks the built app.

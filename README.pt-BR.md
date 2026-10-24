@@ -17,6 +17,8 @@
   <img src="docs/hero.svg" width="820" alt="Psiu no notch alternando entre trabalhando, precisa de você, terminou e dormindo">
 </p>
 
+*"Psiu!"* é como a gente chama a atenção de alguém. É só isso que o Psiu faz.
+
 ## Por quê
 
 Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reunião e esquece de voltar. Vinte minutos depois, descobre que ele estava esperando uma permissão desde o segundo minuto. O Psiu fica no notch, mostra num relance o que cada sessão está fazendo e chama você, com cor e som, quando uma sessão termina ou precisa de você.
@@ -71,7 +73,7 @@ Clique no notch e ele se estica para baixo, virando um painel. Clique de novo, o
 
 A versão instalada aparece no rodapé do painel; clique nela para abrir a página daquela versão.
 
-No clique direito do robô: **Mostrar em** (escolhe as telas), **Silenciar sons**, **Testar sons**, **Sair** e **Desinstalar**.
+No clique direito do robô: **Mostrar em** (escolhe as telas), **Silenciar sons**, **Testar sons**, **Sair do Psiu** e **Desinstalar o Psiu…**.
 
 Em telas sem notch, como um monitor externo, o Psiu desenha um notch do mesmo tamanho no topo da tela.
 
@@ -96,7 +98,7 @@ Requisitos: macOS 14 (Sonoma) ou mais novo, em Apple silicon ou Intel, e o Claud
 
 ```bash
 xcode-select --install   # uma vez, para ter o compilador Swift
-bash build-dmg.sh         # gera o Psiu.app e o Psiu.dmg nesta pasta
+bash build-dmg.sh         # gera o build/Psiu.app e o Psiu.dmg nesta pasta
 ```
 
 É um pacote Swift sem dependências: `Sources/PsiuCore` tem a lógica (hooks, status line, instalador e as regras por trás do robô) e `Sources/Psiu`, o app na tela. `bash test.sh` roda os testes de unidade e confere o app gerado.

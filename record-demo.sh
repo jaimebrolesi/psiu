@@ -23,11 +23,32 @@ mkdir -p "$demo_home/.claude"
 # Counts as connected to Claude Code, so the isolated Psiu doesn't ask to connect.
 printf '{"statusLine":{"type":"command","command":"\\"%s\\" statusline"}}' "$P" > "$demo_home/.claude/settings.json"
 pkill -x Psiu || true; sleep 1
+# A plain blue backdrop over the main screen, above every window and the menu bar but below Psiu (main menu
+# level + 2): your windows, desktop and wallpaper never show up in the GIF, and the GIF stays small.
+osascript -l JavaScript >/dev/null 2>&1 <<'JS' &
+ObjC.import('AppKit');
+$.NSApplication.sharedApplication.setActivationPolicy(1);
+var frame = $.NSScreen.screens.objectAtIndex(0).frame;
+function rgb(r, g, b) { return $.NSColor.colorWithSRGBRedGreenBlueAlpha(r / 255, g / 255, b / 255, 1); }
+var image = $.NSImage.alloc.initWithSize(frame.size);
+image.lockFocus;
+$.NSGradient.alloc.initWithStartingColorEndingColor(rgb(0x12, 0x1c, 0x2e), rgb(0x1f, 0x33, 0x54))
+  .drawInRectAngle($.NSMakeRect(0, 0, frame.size.width, frame.size.height), 90);
+image.unlockFocus;
+var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(frame, 0, 2, false);
+w.level = 25;   // main menu level + 1
+w.ignoresMouseEvents = true;
+w.collectionBehavior = 1 | 16;   // all spaces, stationary
+w.backgroundColor = $.NSColor.colorWithPatternImage(image);
+w.orderFrontRegardless;
+$.NSRunLoop.currentRunLoop.run;
+JS
+backdrop=$!
 HOME="$demo_home" "$P" -AppleLanguages "($languages)" >/dev/null 2>&1 &
 demo_psiu=$!
 finish() {
-  kill "$demo_psiu" 2>/dev/null || true
-  wait "$demo_psiu" 2>/dev/null || true
+  kill "$demo_psiu" "$backdrop" 2>/dev/null || true
+  wait "$demo_psiu" "$backdrop" 2>/dev/null || true
   rm -rf "$demo_home"
   sleep 1; open /Applications/Psiu.app
 }
