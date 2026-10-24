@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.store.reload()
                 self.updateDotsRoom()
+                self.refitOpenPanels()
                 self.checkDemo()
             }
         }
@@ -272,14 +273,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if entry.geo.isOpen { closePanel(id); return }
         closeAll()
         store.acknowledge()
-        let lines = CGFloat(min(max(store.sessions.count, 1), 5))
-        let tips = CGFloat(store.sessions.prefix(5).filter { $0.state == .done && $0.compactions > 0 }.count)
         entry.geo.W = max(entry.geo.closedWidth, 340)
-        entry.geo.H = max(entry.geo.h, PanelGeometry.openStripHeight) + 156 + 112 + 70 * lines + 16 * tips + (store.today.burnt > 0 ? 18 : 0) + 16
+        entry.geo.H = openHeight(entry.geo)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
         withAnimation(springAnimation) { entry.geo.isOpen = true }
+    }
+
+    /// Height of the open panel: the top strip plus the detail, measured at the panel's width.
+    func openHeight(_ geo: PanelGeometry) -> CGFloat {
+        let detail = DetailView(store: store).environment(\.colorScheme, .dark).padding(.horizontal, 6)
+        let size = NSHostingController(rootView: detail).sizeThatFits(in: CGSize(width: geo.W, height: .greatestFiniteMagnitude))
+        return max(geo.h, PanelGeometry.openStripHeight) + ceil(size.height)
+    }
+
+    /// While open, the panel follows its content (a session arrives, a summary gets longer).
+    func refitOpenPanels() {
+        for (id, entry) in panels where entry.geo.isOpen {
+            let target = openHeight(entry.geo)
+            guard abs(target - entry.geo.H) >= 1 else { continue }
+            if target > entry.geo.H {
+                // Growing: first the window (transparent), then the notch stretches inside it.
+                let g = entry.geo
+                entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - target, width: g.W, height: target), display: true)
+                withAnimation(springAnimation) { entry.geo.H = target }
+            } else {
+                // Shrinking: the notch first, then the window.
+                withAnimation(springAnimation) { entry.geo.H = target }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, let entry = self.panels[id], entry.geo.isOpen else { return }
+                    self.applyFrame(entry)
+                }
+            }
+        }
     }
 
     func closePanel(_ id: CGDirectDisplayID) {

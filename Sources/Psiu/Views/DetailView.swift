@@ -195,17 +195,6 @@ struct ScoreboardView: View {
                 metricTile(tr("Sua resposta média", "Your avg. reply"),
                         today.replyCount > 0 ? formatDuration(today.replyTime / Double(today.replyCount)) : tr("sem dados", "no data"), nil)
             }
-            let total = today.working + today.waiting
-            if total > 0 {
-                GeometryReader { geo in
-                    HStack(spacing: 0) {
-                        Rectangle().fill(Palette.working).frame(width: geo.size.width * CGFloat(today.working / total))
-                        Rectangle().fill(Palette.waiting)
-                    }
-                }
-                .frame(height: 5)
-                .clipShape(Capsule())
-            }
             if today.burnt > 0 {
                 Text(tr("Psius queimados hoje: \(today.burnt)", "Psius burnt today: \(today.burnt)"))
                     .font(.system(size: 10)).foregroundStyle(.secondary)

@@ -20,8 +20,6 @@ enum Palette {
     static let tiredText = Color(hex: 0xCECBF6)      // compaction tag and tip
     static let warning = Color(hex: 0xFAC775)        // forecast and time waiting for you
     static let forecastOverflow = Color(hex: 0xEF9F27, alpha: 0.4)
-    static let working = Color(hex: 0x378ADD)        // scoreboard bar: agent working
-    static let waiting = Color(hex: 0xEF9F27)        // scoreboard bar: waiting for you
 
     // Installer art (BuildArt)
     static let iconBackground = Color(hex: 0x1C1C1E)
