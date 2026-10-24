@@ -4,10 +4,14 @@ import Foundation
 
 /// `Psiu statusline`: Claude Code sends context and plan limits; Psiu saves them and prints its status line.
 public func runStatusLine(paths: PsiuPaths = .current) {
-    paths.ensureDirectories()
     let raw = FileHandle.standardInput.readDataToEndOfFile()
+    FileHandle.standardOutput.write(statusLine(input: raw, paths: paths, now: Date().timeIntervalSince1970))
+}
+
+/// Saves what the status line brings and returns the text to show. No stdin or stdout, so it can be tested.
+public func statusLine(input raw: Data, paths: PsiuPaths, now: Double, previousTimeout: TimeInterval = 2) -> Data {
+    paths.ensureDirectories()
     let input = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] ?? [:]
-    let now = Date().timeIntervalSince1970
 
     let cw = input["context_window"] as? [String: Any]
     let ctx = num(cw?["used_percentage"])
@@ -37,21 +41,39 @@ public func runStatusLine(paths: PsiuPaths = .current) {
 
     // If you already had a status line, it keeps showing in place of Psiu's.
     if let prev = try? String(contentsOf: paths.previousStatusLine, encoding: .utf8)
-        .trimmingCharacters(in: .whitespacesAndNewlines), !prev.isEmpty {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", prev]
-        let inPipe = Pipe(), outPipe = Pipe()
-        p.standardInput = inPipe
-        p.standardOutput = outPipe
-        if (try? p.run()) != nil {
-            inPipe.fileHandleForWriting.write(raw)
-            try? inPipe.fileHandleForWriting.close()
-            let out = outPipe.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            FileHandle.standardOutput.write(out)
-            return
-        }
+        .trimmingCharacters(in: .whitespacesAndNewlines), !prev.isEmpty,
+       let out = runPreviousStatusLine(prev, input: raw, timeout: previousTimeout) {
+        return out
     }
-    print(parts.joined(separator: " | "))
+    return Data((parts.joined(separator: " | ") + "\n").utf8)
+}
+
+/// Runs the status line you had before Psiu, with the same input. Nil if it doesn't start or takes longer than
+/// `timeout`: Psiu then shows its own line instead of holding up the terminal's.
+func runPreviousStatusLine(_ command: String, input: Data, timeout: TimeInterval) -> Data? {
+    final class Output: @unchecked Sendable { var data = Data() }   // written before the semaphore, read after
+    signal(SIGPIPE, SIG_IGN)   // a status line that never reads its input must not kill Psiu
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/sh")
+    p.arguments = ["-c", command]
+    let inPipe = Pipe(), outPipe = Pipe()
+    p.standardInput = inPipe
+    p.standardOutput = outPipe
+    guard (try? p.run()) != nil else { return nil }
+    let output = Output(), finished = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+        try? inPipe.fileHandleForWriting.write(contentsOf: input)
+        try? inPipe.fileHandleForWriting.close()
+    }
+    DispatchQueue.global().async {
+        output.data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        finished.signal()
+    }
+    guard finished.wait(timeout: .now() + timeout) == .success else {
+        p.terminate()
+        Log.core.error("The previous status line took longer than \(timeout, privacy: .public) s")
+        return nil
+    }
+    return output.data
 }
