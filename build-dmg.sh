@@ -7,7 +7,7 @@ version=$(sw_vers -productVersion | cut -d. -f1)
 if [ "$version" -lt 14 ]; then
   echo "Psiu needs macOS 14 (Sonoma) or later."; exit 1
 fi
-if ! command -v swiftc >/dev/null 2>&1; then
+if ! command -v swift >/dev/null 2>&1; then
   echo "The Swift compiler is missing. Run: xcode-select --install  and then this script again."; exit 1
 fi
 
@@ -17,14 +17,13 @@ mkdir -p build
 find build -mindepth 1 -maxdepth 1 ! -name venv -exec rm -rf {} +
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-# A universal binary for Apple silicon and Intel, both for macOS 14 (without -target, the compiler would
-# require the macOS of the SDK it builds with).
+# A universal binary for Apple silicon and Intel, both for macOS 14 (the minimum set in Package.swift; without
+# it, the compiler would require the macOS of the SDK it builds with).
 echo "Compiling for Apple silicon and Intel..."
 for arch in arm64 x86_64; do
-  swiftc -O -target "$arch-apple-macos14.0" Psiu.swift -o "build/Psiu-$arch"
+  swift build -c release --product Psiu --triple "$arch-apple-macosx14.0" --quiet
 done
-lipo -create build/Psiu-arm64 build/Psiu-x86_64 -output "$app/Contents/MacOS/Psiu"
-rm -f build/Psiu-arm64 build/Psiu-x86_64
+lipo -create .build/arm64-apple-macosx/release/Psiu .build/x86_64-apple-macosx/release/Psiu -output "$app/Contents/MacOS/Psiu"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

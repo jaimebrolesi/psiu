@@ -3,3 +3,4 @@ build/
 *.mov
 .DS_Store
 CLAUDE.md
+.build/
