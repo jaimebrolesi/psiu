@@ -36,8 +36,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Psiu</string>
   <key>CFBundleIconFile</key><string>Psiu</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.6.4</string>
-  <key>CFBundleVersion</key><string>12</string>
+  <key>CFBundleShortVersionString</key><string>1.6.5</string>
+  <key>CFBundleVersion</key><string>13</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>pt-BR</string></array>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
