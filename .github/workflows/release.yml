@@ -58,11 +58,17 @@ jobs:
       - name: Test
         run: bash test.sh
 
+      - name: Checksum
+        run: |
+          shasum -a 256 Psiu.dmg > Psiu.dmg.sha256
+          shasum -a 256 -c Psiu.dmg.sha256
+          cat Psiu.dmg.sha256
+
       - name: Publish
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" Psiu.dmg --repo "$GITHUB_REPOSITORY" --title "Psiu $VERSION" --notes-file ".github/release-notes-$TAG.md"
+        run: gh release create "$TAG" Psiu.dmg Psiu.dmg.sha256 --repo "$GITHUB_REPOSITORY" --title "Psiu $VERSION" --notes-file ".github/release-notes-$TAG.md"
 
       - name: Dry run summary
         if: env.DRY_RUN == 'true'

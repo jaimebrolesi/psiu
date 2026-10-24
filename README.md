@@ -79,7 +79,7 @@ On displays without a notch, like an external monitor, Psiu draws a notch of the
 
 ## Install
 
-1. Download `Psiu.dmg` from the [latest release](https://github.com/jaimebrolesi/psiu/releases/latest).
+1. Download `Psiu.dmg` from the [latest release](https://github.com/jaimebrolesi/psiu/releases/latest). To check the download, compare `shasum -a 256 Psiu.dmg` with `Psiu.dmg.sha256` from the same release.
 2. Open it and drag Psiu into Applications.
 
 <p align="center">

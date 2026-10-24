@@ -12,7 +12,7 @@ Every push to `main` and every pull request is built and tested on a GitHub Mac 
    git push origin vX.Y.Z
    ```
 
-The release workflow checks that the tag matches `CFBundleShortVersionString` and that the notes exist, then builds, verifies the signature, runs `test.sh` and publishes the release with `Psiu.dmg` attached.
+The release workflow checks that the tag matches `CFBundleShortVersionString` and that the notes exist, then builds, verifies the signature, runs `test.sh` and publishes the release with `Psiu.dmg` and its SHA-256 (`Psiu.dmg.sha256`) attached.
 
 To try it without publishing, run the Release workflow by hand in the Actions tab with **dry-run** on (the default).
 
