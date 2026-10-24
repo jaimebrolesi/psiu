@@ -38,7 +38,7 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 | 1 | **Blue, eyes scanning** | Claude is working | none |
 | 2 | **Blue, peeking from the notch** | The turn ended, but shells, monitors or subagents are still running in the background: Psiu hides in the notch and peeks out now and then | none |
 | 3 | **Purple, tired eyes** | A working session is above 80% of its context, close to being compacted | none |
-| 4 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes; after 10 minutes Psiu panics |
+| 4 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question. When you answer, Psiu breathes out with relief | right away, then every 2 minutes; after 10 minutes Psiu panics |
 | 5 | **Red, eyes on fire** | Waiting for you for over 10 minutes | Sosumi every minute |
 | 6 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot in a cloud of smoke when you finally answer) |
 | 7 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |

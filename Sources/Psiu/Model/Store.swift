@@ -15,7 +15,7 @@ final class Store {
     private(set) var forecastHeadroom = false   // the current pace fits in the window
     private(set) var waitLevels = WaitLevels()  // sessions in panic (10 to 30 min) or burnt (30 min or more)
     private(set) var revivingUntil: Date?       // a burnt Psiu shaking off the soot
-    private(set) var relief: ReliefCue?         // a Psiu you answered from the panel, breathing out of yellow or red
+    private(set) var relief: ReliefCue?         // a Psiu you answered, breathing out of yellow or red
     var displayAsleep = false                   // nobody can see the robot: screens asleep, locked or another user
     /// Episodes already seen (opening the panel): mirrored from the sound policy, as the robot's color depends on it.
     private(set) var seen = Set<String>()
@@ -58,12 +58,20 @@ final class Store {
     /// Runs every half second. Properties are only set when they change, so views only redraw then.
     func reload() {
         let now = Date().timeIntervalSince1970
+        let before = (color: color, sessions: sessions)
         let list = answered.apply(repository.sessions(now: now))
         if list != sessions { sessions = list }
 
         let levels = WaitLevels(sessions: sessions, now: now)
-        if levels.revives(from: waitLevels, sessions: sessions) { revive() }
+        let revives = levels.revives(from: waitLevels, sessions: sessions)
+        if revives { revive() }
         if levels != waitLevels { waitLevels = levels }
+        // Out of yellow or red, once nothing waits anymore, Psiu breathes out with relief (burnt, it revives).
+        let waiting: [RobotColor] = [.yellow, .red, .burnt]
+        if !revives, before.color == .yellow || before.color == .red, !waiting.contains(color),
+           WaitLevels.answered(from: before.sessions, to: sessions) {
+            breatheOut(from: before.color)
+        }
 
         if let l = repository.limits() {
             let c = UsageWindow(l.fiveHour, now: now), w = UsageWindow(l.sevenDay, now: now)
@@ -95,14 +103,14 @@ final class Store {
     }
 
     /// Clicking a session waiting for you means you went to answer it: Claude Code says nothing when you approve
-    /// a permission until the tool ends. A burnt Psiu shakes off the soot (see revive); out of yellow or red, once
-    /// nothing else waits, it breathes out with relief.
+    /// a permission until the tool ends. Psiu reacts as to any answer (see reload).
     func answer(_ s: Session) {
-        let from = color
         guard answered.answer(s, now: Date().timeIntervalSince1970) else { return }
         reload()
-        let waiting: [RobotColor] = [.yellow, .red, .burnt]
-        guard from == .yellow || from == .red, !waiting.contains(color) else { return }
+    }
+
+    /// Relief (RobotRelief.duration), then the robot goes on in its new state.
+    private func breatheOut(from: RobotColor) {
         let cue = ReliefCue(from: from, until: Date().addingTimeInterval(RobotRelief.duration))
         relief = cue
         Task { [weak self] in

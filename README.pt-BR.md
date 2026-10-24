@@ -38,7 +38,7 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 | 1 | **Azul, olhos varrendo** | O Claude está trabalhando | nenhum |
 | 2 | **Azul, espiando do notch** | O turno acabou, mas ainda há shells, monitores ou subagentes rodando em segundo plano: o Psiu se esconde no notch e de vez em quando dá uma espiada | nenhum |
 | 3 | **Roxo, olhos cansados** | Uma sessão trabalhando passou de 80% do contexto e está perto de compactar | nenhum |
-| 4 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta | na hora, e a cada 2 minutos; depois de 10 minutos o Psiu entra em desespero |
+| 4 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta. Quando você responde, o Psiu suspira aliviado | na hora, e a cada 2 minutos; depois de 10 minutos o Psiu entra em desespero |
 | 5 | **Vermelho, olhos em chamas** | Esperando você há mais de 10 minutos | Sosumi a cada minuto |
 | 6 | **Queimado, olhos em X e fumaça** | Esperando há mais de 30 minutos | nenhum (ele sacode a fuligem numa nuvem de fumaça quando você finalmente responde) |
 | 7 | **Verde, sorrindo** | Terminou | depois de 3 segundos, mais um lembrete após 3 minutos se você não olhou |

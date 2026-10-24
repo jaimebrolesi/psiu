@@ -18,4 +18,9 @@ public struct WaitLevels: Equatable, Sendable {
     public func revives(from previous: WaitLevels, sessions: [Session]) -> Bool {
         previous.burnt.subtracting(burnt).contains { id in sessions.contains { $0.id == id && $0.state != .awaiting } }
     }
+
+    /// A session stopped waiting for you and is still open: you answered it (one that ended is simply gone).
+    public static func answered(from previous: [Session], to sessions: [Session]) -> Bool {
+        previous.contains { old in old.state == .awaiting && sessions.contains { $0.id == old.id && $0.state != .awaiting } }
+    }
 }

@@ -16,7 +16,7 @@ struct RobotView: NSViewRepresentable {
     var bandaged = false
     /// Until when a burnt Psiu is shaking off the soot (RobotRevival.duration).
     var revivingUntil: Date? = nil
-    /// A Psiu you answered from the panel, breathing out of yellow or red.
+    /// A Psiu you answered, breathing out of yellow or red.
     var relief: ReliefCue? = nil
     /// Nobody can see the robot: stop animating it.
     var paused = false

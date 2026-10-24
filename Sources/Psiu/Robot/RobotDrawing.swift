@@ -105,7 +105,7 @@ private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ 
 /// as the icon, the installer and the docs need; the other parts are drawn still, at the head's resting place.
 enum RobotPart { case all, body, eyes, drop, embers, smoke, particles, relief }
 
-/// Relief after you answer from the panel, out of yellow or red: eyes shut, a breath in, the head sinking as the
+/// Relief after you answer, out of yellow or red: eyes shut, a breath in, the head sinking as the
 /// air goes out in a puff, then settling into the new state, whose color the shell takes on along the way.
 struct RobotRelief: Equatable {
     var from: RobotColor

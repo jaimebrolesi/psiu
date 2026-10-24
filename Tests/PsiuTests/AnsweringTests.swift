@@ -4,8 +4,9 @@ import QuartzCore
 import Testing
 @testable import Psiu
 
-/// Clicking a session that waits for you, in the panel: Claude Code sends nothing when you approve a permission.
-@Suite("Answering from the panel")
+/// Answering a session that waits for you: clicking it in the panel (Claude Code sends nothing when you approve a
+/// permission) or Claude Code's next event.
+@Suite("Answering")
 @MainActor
 final class AnsweringTests {
     let paths: PsiuPaths
@@ -93,11 +94,54 @@ final class AnsweringTests {
         #expect(store.sessions.first?.state == .done)
     }
 
+    /// The hook writes the session's new state, as after the tool ends or a denied permission.
+    func hookWrites(_ id: String, _ state: String) {
+        var r = SessionRecord()
+        r.state = state
+        r.since = Date().timeIntervalSince1970
+        r.updated = r.since
+        writeFile(r, to: paths.session(id))
+    }
+
+    @Test func claudeCodesNextEventAlsoBringsRelief() {
+        let store = store(waiting: ["a": 30])
+        hookWrites("a", "running")
+        store.reload()
+        #expect(store.color == .blue)
+        #expect(store.relief?.from == .yellow)
+
+        let denied = self.store(waiting: ["b": 700])
+        hookWrites("b", "idle")
+        denied.reload()
+        #expect(denied.relief?.from == .red)
+    }
+
+    @Test func aSessionThatEndedBringsNoRelief() throws {
+        let store = store(waiting: ["a": 30])
+        try FileManager.default.removeItem(at: paths.session("a"))
+        store.reload()
+        #expect(store.color == .gray)
+        #expect(store.relief == nil)
+    }
+
+    @Test func aBurntSessionAnsweredByClaudeCodeRevives() {
+        let store = store(waiting: ["a": 2000])
+        hookWrites("a", "running")
+        store.reload()
+        #expect(store.revivingUntil != nil)
+        #expect(store.relief == nil)
+    }
+
     @Test func theReliefEnds() async throws {
         let store = store(waiting: ["a": 30])
+        let start = Date()
         store.answer(try #require(store.sessions.first))
         #expect(store.relief != nil)
-        try await Task.sleep(for: .milliseconds(Int(RobotRelief.duration * 1000) + 200))
+        // Still on before its time; then off, allowing for a busy main thread while the other tests draw.
+        try await Task.sleep(for: .milliseconds(Int(RobotRelief.duration * 1000) - 500))
+        if Date().timeIntervalSince(start) < RobotRelief.duration { #expect(store.relief != nil) }
+        let deadline = Date().addingTimeInterval(5)
+        while store.relief != nil, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
         #expect(store.relief == nil)
     }
 }

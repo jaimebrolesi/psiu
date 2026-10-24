@@ -28,6 +28,16 @@ struct WaitLevelsTests {
         let waiting = [session("a", .awaiting, since: now - 2000)]
         #expect(!WaitLevels(sessions: waiting, now: now).revives(from: before, sessions: waiting))
     }
+
+    @Test func aWaitThatEndedWasAnswered() {
+        let before = [session("a", .awaiting, since: 100), session("b", .running, since: 100)]
+        #expect(WaitLevels.answered(from: before, to: [session("a", .running, since: 200), session("b", .running, since: 100)]))
+        #expect(WaitLevels.answered(from: before, to: [session("a", .idle, since: 200)]))   // denied
+        // Gone, or still waiting: nobody answered.
+        #expect(!WaitLevels.answered(from: before, to: [session("b", .done, since: 200)]))
+        #expect(!WaitLevels.answered(from: before, to: [session("a", .awaiting, since: 100)]))
+        #expect(!WaitLevels.answered(from: [session("b", .running, since: 100)], to: [session("b", .done, since: 200)]))
+    }
 }
 
 @Suite("Waits you answered from the panel")
