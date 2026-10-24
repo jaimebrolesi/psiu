@@ -137,3 +137,15 @@ struct HookTests {
         #expect(condense(String(repeating: "x", count: 12), 10) == String(repeating: "x", count: 10) + "…")
     }
 }
+
+@Suite("Hooks running at the same time")
+struct ConcurrentHookTests {
+    @Test func parallelHooksDontLoseEachOthersWrites() throws {
+        let home = TemporaryHome(), p = home.paths
+        let event = Data(#"{"session_id":"s1","hook_event_name":"PreCompact","trigger":"auto"}"#.utf8)
+        DispatchQueue.concurrentPerform(iterations: 50) { _ in
+            handleHookEvent(event, paths: p, now: 1000, terminal: noTerminal)
+        }
+        #expect(readFile(SessionRecord.self, at: p.session("s1"))?.compactions == 50)
+    }
+}

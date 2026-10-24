@@ -18,6 +18,8 @@ public struct PsiuPaths: Sendable, Equatable {
     public var scoreboard: URL { base.appendingPathComponent("placar.json") }
     public var previousStatusLine: URL { base.appendingPathComponent("statusline-anterior.txt") }
     public var lock: URL { base.appendingPathComponent("psiu.lock") }
+    /// Held by each hook while it reads and writes a session's file.
+    public var hooksLock: URL { base.appendingPathComponent("hooks.lock") }
     /// While this file exists, the panel stays open (record-demo.sh uses it).
     public var demoPanel: URL { base.appendingPathComponent("demo-panel") }
     public var settings: URL { home.appendingPathComponent(".claude/settings.json") }

@@ -149,12 +149,22 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
 
 /// `Psiu hook`: Claude Code sends each event on standard input.
 public func runHook(paths: PsiuPaths = .current) {
-    paths.ensureDirectories()
     let data = FileHandle.standardInput.readDataToEndOfFile()
+    handleHookEvent(data, paths: paths, now: Date().timeIntervalSince1970, terminal: TerminalInfo.current)
+    // Nothing on stdout: on UserPromptSubmit, anything printed here would go into Claude's context.
+}
+
+/// Applies one event to its session's file. Claude Code runs the hooks of parallel tool calls at the same time,
+/// so reading and writing happen under a lock: otherwise one hook could overwrite what another just wrote.
+public func handleHookEvent(_ data: Data, paths: PsiuPaths, now: Double, terminal: () -> TerminalInfo) {
+    paths.ensureDirectories()
     guard let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+    let lock = open(paths.hooksLock.path, O_CREAT | O_RDWR, 0o644)
+    if lock >= 0 { flock(lock, LOCK_EX) }
+    defer { if lock >= 0 { close(lock) } }   // closing releases the lock
     let id = (input["session_id"] as? String).map(safeID) ?? ""
     let existing = id.isEmpty ? nil : readFile(SessionRecord.self, at: paths.session(id))
-    switch applyHookEvent(input, to: existing, now: Date().timeIntervalSince1970, terminal: TerminalInfo.current) {
+    switch applyHookEvent(input, to: existing, now: now, terminal: terminal) {
     case .ignore:
         break
     case .remove(let id):
@@ -163,5 +173,4 @@ public func runHook(paths: PsiuPaths = .current) {
     case .write(let id, let record):
         writeFile(record, to: paths.session(id))
     }
-    // Nothing on stdout: on UserPromptSubmit, anything printed here would go into Claude's context.
 }
