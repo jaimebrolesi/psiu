@@ -25,7 +25,7 @@ cp "$T/.claude/settings.json" "$T/original.json"
 psiu install >/dev/null
 psiu install >/dev/null   # twice: nothing may be duplicated
 S="$T/.claude/settings.json"
-events="SessionStart UserPromptSubmit PreToolUse PostToolUse PermissionRequest Notification Stop SessionEnd PreCompact"
+events="SessionStart UserPromptSubmit PreToolUse PostToolUse PostToolUseFailure PermissionRequest Notification Stop SubagentStop SessionEnd PreCompact"
 for e in $events; do
   check "hook $e present once" json "$S" "sum('Psiu.app/Contents/MacOS/Psiu' in h['command'] for g in d['hooks'].get('$e', []) for h in g['hooks']) == 1"
 done

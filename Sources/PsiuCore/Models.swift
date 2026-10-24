@@ -17,11 +17,13 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     /// The Claude Code process, and when it started (see ClaudeProcess).
     public var pid: Int32?
     public var pidStart: Double?
+    /// The agents with a permission dialog open ("" is the main agent).
+    public var waiting: [String]?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case state, since, updated, project, bg, tty, bundle, termprog, pid, pidStart
+        case state, since, updated, project, bg, tty, bundle, termprog, pid, pidStart, waiting
         case summary = "resumo", compactions = "compactacoes"
     }
 
@@ -39,6 +41,7 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         compactions = c.number(.compactions).map { Int($0) }
         pid = c.number(.pid).map { Int32($0) }
         pidStart = c.number(.pidStart)
+        waiting = c.lenient([String].self, .waiting)
     }
 }
 

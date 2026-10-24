@@ -193,3 +193,103 @@ struct ClaudeProcessTests {
         #expect(process.isRunning)
     }
 }
+
+/// Sequences recorded from a real Claude Code session (2.1.310): two subagents in parallel, A asks for permission
+/// while B keeps reading files, and the main agent ends its turn with both in the background.
+@Suite("Permission while other agents work")
+struct WaitingAgentsTests {
+    /// The state after each event.
+    func states(_ events: [[String: Any]]) -> [String?] {
+        var rec: SessionRecord?
+        return events.enumerated().map { i, e in
+            var e = e
+            e["session_id"] = "s1"
+            if case .write(_, let r) = applyHookEvent(e, to: rec, now: 1000 + Double(i), terminal: noTerminal) { rec = r }
+            return rec?.state
+        }
+    }
+
+    let start: [[String: Any]] = [
+        ["hook_event_name": "UserPromptSubmit", "prompt": "launch two subagents"],
+        ["hook_event_name": "PreToolUse", "tool_name": "Agent"],
+        ["hook_event_name": "PostToolUse", "tool_name": "Agent"],
+        ["hook_event_name": "PreToolUse", "tool_name": "Bash", "agent_id": "A", "tool_input": ["command": "touch probe-a.txt"]],
+        ["hook_event_name": "PermissionRequest", "tool_name": "Bash", "agent_id": "A", "tool_input": ["command": "touch probe-a.txt"]],
+    ]
+    let meanwhile: [[String: Any]] = [
+        ["hook_event_name": "Stop", "last_assistant_message": "Both launched.",
+         "background_tasks": [["type": "subagent", "status": "running"], ["type": "subagent", "status": "running"]]],
+        ["hook_event_name": "PreToolUse", "tool_name": "Read", "agent_id": "B"],
+        ["hook_event_name": "PostToolUse", "tool_name": "Read", "agent_id": "B"],
+        ["hook_event_name": "SubagentStop", "agent_id": "internal"],
+        ["hook_event_name": "Notification", "notification_type": "permission_prompt", "message": "Claude needs your permission"],
+        ["hook_event_name": "PreToolUse", "tool_name": "Read", "agent_id": "B"],
+        ["hook_event_name": "PostToolUse", "tool_name": "Read", "agent_id": "B"],
+        ["hook_event_name": "SubagentStop", "agent_id": "B"],
+        ["hook_event_name": "UserPromptSubmit", "prompt": "<task-notification>B finished"],
+        ["hook_event_name": "Stop", "background_tasks": [["type": "subagent", "status": "running"]]],
+        ["hook_event_name": "PreToolUse", "tool_name": "Bash", "agent_id": "internal"],
+    ]
+
+    @Test func staysYellowWhileOtherAgentsWorkThenGoesOnWhenYouApprove() throws {
+        let after: [[String: Any]] = [
+            ["hook_event_name": "PostToolUse", "tool_name": "Bash", "agent_id": "A"],
+            ["hook_event_name": "SubagentStop", "agent_id": "A"],
+            ["hook_event_name": "UserPromptSubmit", "prompt": "<task-notification>A finished"],
+            ["hook_event_name": "Stop", "last_assistant_message": "Done.", "background_tasks": []],
+        ]
+        let s = states(start + meanwhile + after)
+        #expect(s[start.count - 1] == "awaiting")
+        #expect(s[start.count..<(start.count + meanwhile.count)].allSatisfy { $0 == "awaiting" })
+        #expect(Array(s.suffix(after.count)) == ["running", "running", "running", "done"])
+    }
+
+    @Test func theRequestStaysOnScreenAndTheWaitKeepsItsStart() throws {
+        var rec: SessionRecord?
+        for (i, e) in (start + meanwhile).enumerated() {
+            var e = e
+            e["session_id"] = "s1"
+            if case .write(_, let r) = applyHookEvent(e, to: rec, now: 1000 + Double(i), terminal: noTerminal) { rec = r }
+        }
+        let r = try #require(rec)
+        #expect(r.summary == tr("Quer permissão para Bash: ", "Wants permission for Bash: ") + "touch probe-a.txt")
+        #expect(r.since == 1000 + Double(start.count - 1))   // panic and burn count from the request
+        #expect(r.waiting == ["A"])
+        #expect(r.bg == "1 subagent")
+    }
+
+    @Test func aDeniedSubagentEndsAndTheSessionGoesOn() throws {
+        let after: [[String: Any]] = [
+            ["hook_event_name": "SubagentStop", "agent_id": "A"],
+            ["hook_event_name": "UserPromptSubmit", "prompt": "<task-notification>A was denied"],
+            ["hook_event_name": "Stop", "background_tasks": []],
+        ]
+        #expect(Array(states(start + meanwhile + after).suffix(after.count)) == ["running", "running", "done"])
+    }
+
+    @Test func theMainAgentsPermissionWorksAsBefore() throws {
+        #expect(states([
+            ["hook_event_name": "UserPromptSubmit", "prompt": "touch and read"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Bash"],
+            ["hook_event_name": "PermissionRequest", "tool_name": "Bash"],
+            ["hook_event_name": "Notification", "notification_type": "permission_prompt", "message": "Claude needs your permission"],
+            ["hook_event_name": "PostToolUse", "tool_name": "Bash"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Read"],
+            ["hook_event_name": "PostToolUse", "tool_name": "Read"],
+            ["hook_event_name": "Stop", "background_tasks": []],
+        ]) == ["running", "running", "awaiting", "awaiting", "running", "running", "running", "done"])
+    }
+
+    @Test func aFailedToolOrANotificationAloneAlsoWork() throws {
+        #expect(states([
+            ["hook_event_name": "Notification", "notification_type": "elicitation_dialog", "message": "Pick one"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Read", "agent_id": "B"],
+            ["hook_event_name": "PostToolUseFailure", "tool_name": "Read"],
+        ]) == ["awaiting", "awaiting", "running"])
+    }
+
+    @Test func typingAPromptClosesEveryDialog() throws {
+        let s = states(start + [["hook_event_name": "UserPromptSubmit", "prompt": "never mind"]])
+        #expect(s.last == "running")
+    }
+}

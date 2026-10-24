@@ -84,25 +84,43 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         rec.pidStart = process.start
     }
     let previousState = rec.state
+    // The agents with a permission dialog open: "" is the main agent, others are subagents (agent_id). While one
+    // waits, the others keep working and the main agent may even stop, but the session still needs you.
+    let agent = input["agent_id"] as? String ?? ""
+    var waiting = rec.waiting ?? []
 
     var newState: String?
     switch event {
     case "SessionStart":
         newState = "idle"
+        waiting = []
         // /clear starts the session over; the SessionStart after a compaction is not counted again.
         if input["source"] as? String == "clear" { rec.compactions = 0 }
     case "PreCompact":
         rec.compactions = (rec.compactions ?? 0) + 1
     case "UserPromptSubmit":
-        newState = "running"
         let prompt = input["prompt"] as? String ?? ""
-        rec.summary = prompt.hasPrefix("<")
-            ? tr("Retomou depois de uma tarefa em segundo plano.", "Resumed after a background task.")
-            : tr("Pedido: ", "Prompt: ") + condense(prompt, 140)
-    case "PreToolUse", "PostToolUse":
-        newState = "running"
+        let resumed = prompt.hasPrefix("<")   // a background task finished, not you typing
+        if !resumed { waiting = [] }          // you typed: no dialog is open anymore
+        if waiting.isEmpty {
+            newState = "running"
+            rec.summary = resumed
+                ? tr("Retomou depois de uma tarefa em segundo plano.", "Resumed after a background task.")
+                : tr("Pedido: ", "Prompt: ") + condense(prompt, 140)
+        }
+    case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+        // The waiting agent moving on means its permission was answered.
+        waiting.removeAll { $0 == agent }
+        if waiting.isEmpty { newState = "running" }
+    case "SubagentStop":
+        // A subagent whose permission you denied just ends.
+        if waiting.contains(agent) {
+            waiting.removeAll { $0 == agent }
+            if waiting.isEmpty { newState = "running" }
+        }
     case "PermissionRequest":
         newState = "awaiting"
+        if !waiting.contains(agent) { waiting.append(agent) }
         let tool = input["tool_name"] as? String ?? tr("uma ferramenta", "a tool")
         if let cmd = (input["tool_input"] as? [String: Any])?["command"] as? String {
             rec.summary = tr("Quer permissão para \(tool): ", "Wants permission for \(tool): ") + condense(cmd, 90)
@@ -114,23 +132,27 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         let msg = (input["message"] as? String ?? "").lowercased()
         if kind == "permission_prompt" || kind == "elicitation_dialog" || msg.contains("permission") {
             newState = "awaiting"
+            // It doesn't say which agent asks; PermissionRequest usually came first and did.
+            if waiting.isEmpty { waiting = [agent] }
             if previousState != "awaiting", let m = input["message"] as? String { rec.summary = condense(m, 140) }
         } else if kind == "idle_prompt", rec.state == "running" {
             // You interrupted with Esc: Stop doesn't fire, so idle fixes the stuck blue.
             newState = "idle"
         }
     case "Stop":
-        if let m = input["last_assistant_message"] as? String, !m.isEmpty { rec.summary = lastSnippet(m) }
+        // The main agent stopped; a subagent may still be waiting for you, and its request stays on screen.
+        waiting.removeAll { $0 == "" }
+        if waiting.isEmpty, let m = input["last_assistant_message"] as? String, !m.isEmpty { rec.summary = lastSnippet(m) }
         // Stop lists the tasks still running (shells, monitors, subagents).
         let tasks = (input["background_tasks"] as? [[String: Any]] ?? []).filter {
             let st = $0["status"] as? String ?? "running"
             return st == "running" || st == "pending"
         }
         if tasks.isEmpty {
-            newState = "done"
+            if waiting.isEmpty { newState = "done" }
             rec.bg = nil
         } else {
-            newState = "background"
+            if waiting.isEmpty { newState = "background" }
             var order: [String] = []
             var counts: [String: Int] = [:]
             for t in tasks {
@@ -148,6 +170,7 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         if rec.state != s { rec.since = now }
         rec.state = s
     }
+    rec.waiting = waiting.isEmpty ? nil : waiting
     rec.updated = now
     return .write(id: sid, record: rec)
 }

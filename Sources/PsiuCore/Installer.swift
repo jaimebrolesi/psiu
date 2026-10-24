@@ -52,8 +52,8 @@ func removingPsiuHooks(_ groups: [[String: Any]]) -> [[String: Any]] {
 
 public let hookEvents: [(String, String?)] = [
     ("SessionStart", nil), ("UserPromptSubmit", nil),
-    ("PreToolUse", "*"), ("PostToolUse", "*"), ("PermissionRequest", "*"),
-    ("Notification", "*"), ("Stop", nil), ("SessionEnd", nil), ("PreCompact", "*"),
+    ("PreToolUse", "*"), ("PostToolUse", "*"), ("PostToolUseFailure", "*"), ("PermissionRequest", "*"),
+    ("Notification", "*"), ("Stop", nil), ("SubagentStop", nil), ("SessionEnd", nil), ("PreCompact", "*"),
 ]
 
 /// `Psiu install`: adds Psiu's hooks and status line to Claude Code's settings.json, keeping the original as a backup.
