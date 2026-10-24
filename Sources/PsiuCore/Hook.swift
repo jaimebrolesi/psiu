@@ -83,17 +83,25 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         rec.pid = process.pid
         rec.pidStart = process.start
     }
+    if let t = input["transcript_path"] as? String, !t.isEmpty { rec.transcript = t }
     let previousState = rec.state
     // The agents with a permission dialog open: "" is the main agent, others are subagents (agent_id). While one
     // waits, the others keep working and the main agent may even stop, but the session still needs you.
     let agent = input["agent_id"] as? String ?? ""
     var waiting = rec.waiting ?? []
+    // Subagents run in the background, and so does a shell started with run_in_background; Stop says what's left.
+    let toolInput = input["tool_input"] as? [String: Any]
+    if event == "PreToolUse", agent.isEmpty, ["Agent", "Task"].contains(input["tool_name"] as? String ?? "")
+        || toolInput?["run_in_background"] as? Bool == true {
+        rec.backgroundWork = true
+    }
 
     var newState: String?
     switch event {
     case "SessionStart":
         newState = "idle"
         waiting = []
+        rec.backgroundWork = nil
         // /clear starts the session over; the SessionStart after a compaction is not counted again.
         if input["source"] as? String == "clear" { rec.compactions = 0 }
     case "PreCompact":
@@ -122,7 +130,7 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         newState = "awaiting"
         if !waiting.contains(agent) { waiting.append(agent) }
         let tool = input["tool_name"] as? String ?? tr("uma ferramenta", "a tool")
-        if let cmd = (input["tool_input"] as? [String: Any])?["command"] as? String {
+        if let cmd = toolInput?["command"] as? String {
             rec.summary = tr("Quer permissão para \(tool): ", "Wants permission for \(tool): ") + condense(cmd, 90)
         } else {
             rec.summary = tr("Quer permissão para usar \(tool).", "Wants permission to use \(tool).")
@@ -148,6 +156,7 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
             let st = $0["status"] as? String ?? "running"
             return st == "running" || st == "pending"
         }
+        rec.backgroundWork = tasks.isEmpty ? nil : true
         if tasks.isEmpty {
             if waiting.isEmpty { newState = "done" }
             rec.bg = nil

@@ -54,6 +54,14 @@ public final class SessionRepository {
                             bundle: r.bundle,
                             termprog: r.termprog,
                             compactions: r.compactions ?? 0)
+            // You denied the main agent's permission with Esc: Claude Code sends no event, but it writes the
+            // transcript, which it doesn't do while the dialog is open unless something ends in the background.
+            // Only the file's date is looked at.
+            if s.state == .awaiting, r.waiting == [""], r.backgroundWork != true, let t = r.transcript,
+               let written = modificationDate(t), written > s.since + 2 {
+                s.state = .idle
+                s.since = written
+            }
             if let m = cached(SessionMetrics.self, metricsURL) {
                 s.ctx = m.ctx
                 s.model = m.model
@@ -63,6 +71,10 @@ public final class SessionRepository {
         }
         list.sort { $0.since > $1.since }
         return list
+    }
+
+    private func modificationDate(_ path: String) -> Double? {
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date)?.timeIntervalSince1970
     }
 
     public func limits() -> LimitsFile? { cached(LimitsFile.self, paths.limits) }

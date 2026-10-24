@@ -293,3 +293,91 @@ struct WaitingAgentsTests {
         #expect(s.last == "running")
     }
 }
+
+/// Denying the main agent's permission with Esc fires no hook event (Claude Code 2.1.310); only the transcript,
+/// untouched while the dialog is open, is written about a second later.
+@Suite("Permission you denied in the main agent")
+struct DeniedMainAgentTests {
+    let home = TemporaryHome()
+    var transcript: URL { home.paths.home.appendingPathComponent("transcript.jsonl") }
+
+    /// The session as the app shows it, with the transcript last written at `written`.
+    func shown(_ events: [[String: Any]], transcriptWritten written: Double?) throws -> Session? {
+        var rec: SessionRecord?
+        for (i, e) in events.enumerated() {
+            var e = e
+            e["session_id"] = "s1"
+            e["transcript_path"] = transcript.path
+            if case .write(_, let r) = applyHookEvent(e, to: rec, now: 1000 + Double(i), terminal: noTerminal) { rec = r }
+        }
+        writeFile(try #require(rec), to: home.paths.session("s1"))
+        if let written {
+            try Data("{}\n".utf8).write(to: transcript)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: written)], ofItemAtPath: transcript.path)
+        }
+        return SessionRepository(paths: home.paths).sessions(now: 2000).first
+    }
+
+    let mainRequest: [[String: Any]] = [
+        ["hook_event_name": "UserPromptSubmit", "prompt": "touch a file"],
+        ["hook_event_name": "PreToolUse", "tool_name": "Bash"],
+        ["hook_event_name": "PermissionRequest", "tool_name": "Bash"],   // at 1002
+        ["hook_event_name": "Notification", "notification_type": "permission_prompt", "message": "Claude needs your permission"],
+    ]
+
+    @Test func theHookRecordsTheTranscriptsPath() throws {
+        #expect(try shown(mainRequest, transcriptWritten: nil) != nil)
+        let raw = try #require(readFile(SessionRecord.self, at: home.paths.session("s1")))
+        #expect(raw.transcript == transcript.path)
+    }
+
+    @Test func theTranscriptWrittenAfterTheRequestMeansYouDenied() throws {
+        let s = try #require(try shown(mainRequest, transcriptWritten: 1033))
+        #expect(s.state == .idle)
+        #expect(s.since == 1033)
+    }
+
+    @Test func anUntouchedTranscriptStillWaitsForYou() throws {
+        #expect(try shown(mainRequest, transcriptWritten: nil)?.state == .awaiting)       // no transcript saved
+        #expect(try shown(mainRequest, transcriptWritten: 990)?.state == .awaiting)
+        #expect(try shown(mainRequest, transcriptWritten: 1002.2)?.state == .awaiting)   // the flush right after the request
+    }
+
+    @Test func aSubagentsRequestIgnoresTheTranscript() throws {
+        let subagent: [[String: Any]] = [
+            ["hook_event_name": "PreToolUse", "tool_name": "Bash", "agent_id": "A"],
+            ["hook_event_name": "PermissionRequest", "tool_name": "Bash", "agent_id": "A"],
+        ]
+        #expect(try shown(subagent, transcriptWritten: 1500)?.state == .awaiting)
+    }
+
+    /// A shell or subagent ending in the background writes the transcript while the dialog is still open.
+    @Test func backgroundWorkKeepsItWaiting() throws {
+        let launchesASubagent: [[String: Any]] = [
+            ["hook_event_name": "UserPromptSubmit", "prompt": "launch a subagent, then touch a file"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Agent"],
+            ["hook_event_name": "PostToolUse", "tool_name": "Agent"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Bash"],
+            ["hook_event_name": "PermissionRequest", "tool_name": "Bash"],
+            ["hook_event_name": "PreToolUse", "tool_name": "Read", "agent_id": "B"],
+            ["hook_event_name": "PostToolUse", "tool_name": "Read", "agent_id": "B"],
+        ]
+        #expect(try shown(launchesASubagent, transcriptWritten: 1100)?.state == .awaiting)
+
+        let shellStillRunning: [[String: Any]] = [
+            ["hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": ["command": "sleep 25", "run_in_background": true]],
+            ["hook_event_name": "PostToolUse", "tool_name": "Bash"],
+            ["hook_event_name": "Stop", "background_tasks": [["type": "shell", "status": "running"]]],
+        ]
+        #expect(try shown(shellStillRunning + mainRequest, transcriptWritten: 1100)?.state == .awaiting)
+    }
+
+    @Test func onceNothingIsLeftInTheBackgroundTheRuleIsBack() throws {
+        let finished: [[String: Any]] = [
+            ["hook_event_name": "PreToolUse", "tool_name": "Agent"],
+            ["hook_event_name": "Stop", "background_tasks": []],
+            ["hook_event_name": "SubagentStop", "agent_id": "internal"],
+        ]
+        #expect(try shown(finished + mainRequest, transcriptWritten: 1100)?.state == .idle)
+    }
+}

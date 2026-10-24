@@ -19,11 +19,16 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var pidStart: Double?
     /// The agents with a permission dialog open ("" is the main agent).
     public var waiting: [String]?
+    /// The session's transcript; only its modification date is ever looked at.
+    public var transcript: String?
+    /// A shell or subagent may be running in the background; when it ends, Claude Code writes the transcript.
+    public var backgroundWork: Bool?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case state, since, updated, project, bg, tty, bundle, termprog, pid, pidStart, waiting
+        case state, since, updated, project, bg, tty, bundle, termprog, pid, pidStart, waiting, transcript
+        case backgroundWork = "bgWork"
         case summary = "resumo", compactions = "compactacoes"
     }
 
@@ -42,6 +47,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         pid = c.number(.pid).map { Int32($0) }
         pidStart = c.number(.pidStart)
         waiting = c.lenient([String].self, .waiting)
+        transcript = c.lenient(String.self, .transcript)
+        backgroundWork = c.lenient(Bool.self, .backgroundWork)
     }
 }
 
