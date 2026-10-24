@@ -103,7 +103,17 @@ private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ 
 
 /// The pieces Core Animation moves on their own (see RobotLayerView). `.all` draws the whole robot, moving,
 /// as the icon, the installer and the docs need; the other parts are drawn still, at the head's resting place.
-enum RobotPart { case all, body, eyes, drop, embers, smoke, particles }
+enum RobotPart { case all, body, eyes, drop, embers, smoke, particles, relief }
+
+/// Relief after you answer from the panel, out of yellow or red: eyes shut, a breath in, the head sinking as the
+/// air goes out in a puff, then settling into the new state, whose color the shell takes on along the way.
+struct RobotRelief: Equatable {
+    var from: RobotColor
+    var progress: Double
+    static let duration = 2.0
+    /// The eyes stay shut until here, then open into the new state's.
+    static let eyesOpen = 0.75
+}
 
 /// Shell and LED colors per state.
 func robotPalette(_ color: RobotColor, _ tired: Bool) -> (shellHex: UInt32, shellAlpha: Double, led: Color) {
@@ -152,8 +162,33 @@ func headMotion(_ color: RobotColor, peeking: Bool, _ t: Double) -> (sway: Doubl
     return (sway, dy, tilt)
 }
 
+/// Relief: the head rises with the breath in, sinks as it goes out and settles (down on the grid); out of panic,
+/// the shaking dies down first (extra tilt in degrees).
+func reliefMotion(_ r: RobotRelief, _ t: Double) -> (dy: Double, tilt: Double) {
+    let p = r.progress
+    let dy: Double
+    if p < 0.18 {
+        dy = -2 * sin(.pi / 2 * p / 0.18)
+    } else if p < 0.6 {
+        dy = -2 + 5 * (1 - cos(.pi * (p - 0.18) / 0.42)) / 2
+    } else {
+        dy = 3 * (1 + cos(.pi * (p - 0.6) / 0.4)) / 2
+    }
+    let tilt = r.from == .red ? 4 * sin(2 * .pi * t / 0.32 + .pi / 2) * max(0, 1 - p / 0.35) : 0
+    return (dy, tilt)
+}
+
+/// Reviving, when you answer a burnt Psiu: it shakes off the soot and comes out of a curtain of smoke.
+enum RobotRevival {
+    static let duration = 1.5
+    /// The shake settles by here (the first 0.8 s).
+    static let shakeEnds = 0.8 / duration
+}
+
 /// Reviving: shakes off the soot at 10 Hz, settling down to still (extra tilt in degrees).
-func revivalShake(_ p: Double, _ t: Double) -> Double { 6 * sin(2 * .pi * 10 * t) * (1 - p) }
+func revivalShake(_ p: Double, _ t: Double) -> Double {
+    6 * sin(2 * .pi * 10 * t) * max(0, 1 - p / RobotRevival.shakeEnds)
+}
 
 /// How far the LED eyes scan sideways, on the grid.
 func eyeShift(_ color: RobotColor, peeking: Bool, _ t: Double) -> CGFloat {
@@ -166,7 +201,8 @@ func eyeShift(_ color: RobotColor, peeking: Bool, _ t: Double) -> CGFloat {
 }
 
 func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, _ tired: Bool, _ t: Double,
-                          peeking: Bool = false, bandaged: Bool = false, revival: Double? = nil, part: RobotPart = .all) {
+                          peeking: Bool = false, bandaged: Bool = false, revival: Double? = nil, relief: RobotRelief? = nil,
+                          part: RobotPart = .all) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
     g.scaleBy(x: s, y: s)
@@ -175,22 +211,34 @@ func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, 
 
     let (shellHex, shellAlpha, led) = robotPalette(color, tired)
     // Reviving, the shell goes from burnt to the new state's color.
+    // Relieved, from yellow or red.
     let shell = revival.map { mix(0x554A43, shellHex, $0, alpha: 1 + (shellAlpha - 1) * $0) }
+        ?? relief.map { mix(robotPalette($0.from, false).shellHex, shellHex, $0.progress, alpha: 1 + (shellAlpha - 1) * $0.progress) }
         ?? Color(hex: shellHex, alpha: shellAlpha)
 
     if whole {
         var (sway, dy, tilt) = headMotion(color, peeking: peeking, t)
         if let p = revival { tilt += revivalShake(p, t) }
+        if let r = relief {
+            let (rdy, rtilt) = reliefMotion(r, t)
+            dy += rdy
+            tilt += rtilt
+        }
         g.translateBy(x: 30 + sway, y: 25 + dy)
         g.rotate(by: .degrees(tilt))
         g.translateBy(x: -30, y: -25)
     }
 
     if whole || part == .body { drawBody(&g, s, color, bandaged, shell) }
-    if whole || part == .eyes || part == .drop || part == .embers || part == .smoke {
+    let eyesShut = relief.map { $0.progress < RobotRelief.eyesOpen } ?? false
+    if (whole && !eyesShut) || part == .eyes || part == .drop || part == .embers || part == .smoke {
         drawEyes(&g, color, tired, peeking, t, led, dx: whole ? eyeShift(color, peeking: peeking, t) : 0, part: part)
     }
-    if (whole || part == .particles), let p = revival { drawSootParticles(&g, p) }
+    if (whole || part == .particles), let p = revival { drawSmokeCurtain(&g, p) }
+    if (whole || part == .relief), let r = relief {
+        if eyesShut { drawRelievedEyes(&g, led) }
+        drawPuff(&g, r.progress)
+    }
 }
 
 /// Shell, soot streaks, visor and headband.
@@ -321,13 +369,43 @@ private func drawEyes(_ g: inout GraphicsContext, _ color: RobotColor, _ tired: 
     }
 }
 
-/// Reviving: four bits of soot fly off the shell and fade.
-private func drawSootParticles(_ g: inout GraphicsContext, _ p: Double) {
-    do {
-        for (x, y, dx, dy) in [(12.0, 12.0, -1.0, -1.0), (48.0, 12.0, 1.0, -1.0), (10.0, 36.0, -1.0, 1.0), (50.0, 36.0, 1.0, 1.0)] {
-            let c = CGPoint(x: x + dx * 12 * p, y: y + dy * 12 * p)
-            g.fill(Path(ellipseIn: CGRect(x: c.x - 1.8, y: c.y - 1.8, width: 3.6, height: 3.6)),
-                   with: .color(Color(hex: 0x5A4E46, alpha: 1 - p)))
+/// Reviving: a curtain of smoke covers the shell, then rises, spreads and thins out, revealing the new color.
+private func drawSmokeCurtain(_ g: inout GraphicsContext, _ p: Double) {
+    let puffs: [(x: Double, y: Double, r: Double, delay: Double)] = [
+        (9, 31, 7, 0.00), (20, 37, 8, 0.06), (30, 33, 9, 0.02), (40, 37, 8, 0.08), (51, 31, 7, 0.04),
+        (14, 19, 7, 0.12), (30, 15, 8, 0.15), (46, 19, 7, 0.10),
+    ]
+    // One soft cloud: the puffs are drawn opaque in a blurred layer, so where they overlap they merge.
+    g.drawLayer { cloud in
+        cloud.opacity = 0.9 * pow(1 - p, 1.3)
+        cloud.addFilter(.blur(radius: 2.2))
+        for c in puffs {
+            let q = max(0, min(1, (p - c.delay) / 0.85))
+            let eased = 1 - (1 - q) * (1 - q)
+            let r = c.r * (0.9 + 0.9 * eased)
+            let center = CGPoint(x: c.x + (c.x - 30) * 0.35 * eased, y: c.y - 24 * eased)
+            cloud.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)),
+                       with: .color(Color(hex: 0x9A978F)))
         }
+    }
+}
+
+/// Relief: eyes shut in a content curve.
+private func drawRelievedEyes(_ g: inout GraphicsContext, _ led: Color) {
+    var arcs = Path()
+    arcs.move(to: CGPoint(x: 15, y: 25)); arcs.addQuadCurve(to: CGPoint(x: 26, y: 25), control: CGPoint(x: 20.5, y: 31))
+    arcs.move(to: CGPoint(x: 34, y: 25)); arcs.addQuadCurve(to: CGPoint(x: 45, y: 25), control: CGPoint(x: 39.5, y: 31))
+    g.stroke(arcs, with: .color(led), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+}
+
+/// Relief: two puffs of air leave the side of the head as it breathes out, growing and fading.
+private func drawPuff(_ g: inout GraphicsContext, _ p: Double) {
+    for (i, delay) in [0.0, 0.12].enumerated() {
+        let q = (p - 0.25 - delay) / 0.5
+        guard q > 0, q < 1 else { continue }
+        let r = 2.4 + 2.6 * q
+        let c = CGPoint(x: 54 + 8 * q + 2 * Double(i), y: 36 + 2 * q - 4 * Double(i))
+        g.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
+               with: .color(Color(hex: 0xEEEDFE, alpha: 0.85 * sin(.pi * min(1, q * 1.6)))))
     }
 }

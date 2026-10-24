@@ -40,7 +40,7 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 | 3 | **Purple, tired eyes** | A working session is above 80% of its context, close to being compacted | none |
 | 4 | **Yellow, eyes and "!" alternating** | Claude needs you: a permission or a question | right away, then every 2 minutes; after 10 minutes Psiu panics |
 | 5 | **Red, eyes on fire** | Waiting for you for over 10 minutes | Sosumi every minute |
-| 6 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot when you finally answer) |
+| 6 | **Burnt, X eyes and smoke** | Waiting for over 30 minutes | none (it shakes off the soot in a cloud of smoke when you finally answer) |
 | 7 | **Green, smiling** | Finished | after 3 seconds, plus one reminder after 3 minutes if you have not looked |
 | 8 | **Green with a purple headband** | Finished, but the session was compacted along the way: time to clear it | same as done |
 | 9 | **Dim green, half-closed eyes** | Idle, and you have already seen it | none |
@@ -67,7 +67,7 @@ Click the notch and it stretches down into a panel. Click it again, or anywhere 
 </p>
 
 - **5-hour window and week**, with when they reset. Based on the last hour, Psiu tells you if your current pace runs out the 5-hour window before it resets.
-- **Every session** (the five newest, plus a count of the others), with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward).
+- **Every session** (the five newest, plus a count of the others), with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward). Clicking a session that waits for you also tells Psiu you went to answer it: Claude Code doesn't say when you approve a permission, only when the tool ends, so the click turns it blue, with a sigh of relief, until the next event.
 - **Compacted sessions** get a "compacted Nx" tag, and once they finish, a tip to clear the session (`/clear`) before your next prompt.
 - **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days, and how many Psius burnt out waiting for you. A small, honest mirror.
 

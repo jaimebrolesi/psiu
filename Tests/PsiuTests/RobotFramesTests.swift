@@ -3,8 +3,9 @@ import SwiftUI
 import Testing
 @testable import Psiu
 
-/// The robot drawn now against frames saved from Psiu 1.6.2, so a refactor can't change how it looks.
-/// Each file name holds the look: color_tired_peeking_bandaged_revival_time.png.
+/// The robot drawn now against frames saved from Psiu 1.6.2 (the revival's smoke and the relief from 1.6.6), so a
+/// refactor can't change how it looks. Each file name holds the look: color_tired_peeking_bandaged_revival_time.png,
+/// plus _relief-from-progress for the relief.
 @Suite("Robot frames")
 @MainActor
 struct RobotFramesTests {
@@ -23,13 +24,20 @@ struct RobotFramesTests {
     /// Draws one look the way the golden frames were made: the 60 x 46 grid in an 80 x 66 canvas, at 2x.
     func render(_ name: String) throws -> CGImage {
         let f = name.split(separator: "_").map(String.init)
-        try #require(f.count == 6, "unexpected file name \(name)")
+        try #require(f.count == 6 || f.count == 7, "unexpected file name \(name)")
         let color = try #require(Self.colors[f[0]])
         let tired = f[1] == "true", peeking = f[2] == "true", bandaged = f[3] == "true"
         let revival = Double(f[4]), t = try #require(Double(f[5]))
+        var relief: RobotRelief?
+        if f.count == 7 {
+            let r = f[6].split(separator: "-").map(String.init)
+            try #require(r.count == 3 && r[0] == "relief", "unexpected relief in \(name)")
+            relief = RobotRelief(from: try #require(Self.colors[r[1]]), progress: try #require(Double(r[2])))
+        }
         let view = Canvas { g, _ in
             g.translateBy(x: 10, y: 10)
-            drawRobot(&g, CGSize(width: 60, height: 46), color, tired, t, peeking: peeking, bandaged: bandaged, revival: revival)
+            drawRobot(&g, CGSize(width: 60, height: 46), color, tired, t, peeking: peeking, bandaged: bandaged, revival: revival,
+                      relief: relief)
         }
         .frame(width: 80, height: 66)
         let renderer = ImageRenderer(content: view)
@@ -51,7 +59,20 @@ struct RobotFramesTests {
     }
 
     @Test func thereAreGoldenFrames() {
-        #expect(Self.goldenFiles.count == 60)
+        #expect(Self.goldenFiles.count == 68)
+    }
+
+    /// Saves the frames again into $PSIU_GOLDEN (only when it is set): after a change Jaime approved.
+    @Test func saveFrames() throws {
+        guard let dir = ProcessInfo.processInfo.environment["PSIU_GOLDEN"] else { return }
+        var names = Self.goldenFiles.map { $0.deletingPathExtension().lastPathComponent }
+        for from in ["yellow", "red"] {
+            for p in ["0.1", "0.4", "0.6", "0.9"] { names.append("blue_false_false_false_nil_0.37_relief-\(from)-\(p)") }
+        }
+        for name in Set(names) {
+            let rep = NSBitmapImageRep(cgImage: try render(name))
+            try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
+        }
     }
 
     @Test(arguments: goldenFiles)

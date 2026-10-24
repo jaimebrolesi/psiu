@@ -40,7 +40,7 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 | 3 | **Roxo, olhos cansados** | Uma sessão trabalhando passou de 80% do contexto e está perto de compactar | nenhum |
 | 4 | **Amarelo, olhos e "!" alternando** | O Claude precisa de você: uma permissão ou uma pergunta | na hora, e a cada 2 minutos; depois de 10 minutos o Psiu entra em desespero |
 | 5 | **Vermelho, olhos em chamas** | Esperando você há mais de 10 minutos | Sosumi a cada minuto |
-| 6 | **Queimado, olhos em X e fumaça** | Esperando há mais de 30 minutos | nenhum (ele sacode a fuligem quando você finalmente responde) |
+| 6 | **Queimado, olhos em X e fumaça** | Esperando há mais de 30 minutos | nenhum (ele sacode a fuligem numa nuvem de fumaça quando você finalmente responde) |
 | 7 | **Verde, sorrindo** | Terminou | depois de 3 segundos, mais um lembrete após 3 minutos se você não olhou |
 | 8 | **Verde com faixa roxa** | Terminou, mas a sessão foi compactada no caminho: hora de limpar | igual ao terminou |
 | 9 | **Verde apagado, olhos semicerrados** | Parado, e você já viu | nenhum |
@@ -67,7 +67,7 @@ Clique no notch e ele se estica para baixo, virando um painel. Clique de novo, o
 </p>
 
 - **Janela de 5 horas e semana,** com o horário de renovação. Pelo ritmo da última hora, o Psiu avisa se o consumo atual estoura a janela de 5 horas antes de ela renovar.
-- **Cada sessão** (as cinco mais recentes, mais a contagem das outras), com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app.
+- **Cada sessão** (as cinco mais recentes, mais a contagem das outras), com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app. Clicar numa sessão que espera por você também avisa o Psiu que você foi responder: o Claude Code não diz quando você aprova uma permissão, só quando a ferramenta termina, então o clique deixa o Psiu azul, com um suspiro de alívio, até o próximo evento.
 - **Sessões compactadas** ganham a etiqueta "compactada Nx" e, quando terminam, a sugestão de limpar a sessão (`/clear`) antes do próximo pedido.
 - **Hoje:** quanto tempo os agentes trabalharam, quanto tempo esperaram por você e sua resposta média, mais o acumulado de 7 dias e quantos Psius queimaram esperando você. Um espelho pequeno e honesto.
 

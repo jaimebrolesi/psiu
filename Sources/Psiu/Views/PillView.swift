@@ -22,7 +22,8 @@ struct PillView: View {
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
-                                  bandaged: store.bandaged, revivingUntil: store.revivingUntil, paused: store.displayAsleep)
+                                  bandaged: store.bandaged, revivingUntil: store.revivingUntil, relief: store.relief,
+                                  paused: store.displayAsleep)
                             .aspectRatio(60.0 / 46.0, contentMode: .fit)
                             .frame(width: geo.isOpen ? 42 : 29, height: geo.isOpen ? 32 : 22)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
@@ -33,7 +34,7 @@ struct PillView: View {
                     .onTapGesture { app.toggleDetail(displayID) }
 
                     if geo.isOpen {
-                        DetailView(store: store, onOpen: { app.openTerminal($0) })
+                        DetailView(store: store, onOpen: { store.answer($0); app.openTerminal($0) })
                             .environment(\.colorScheme, .dark)
                             .padding(.horizontal, 6)
                             .transition(.asymmetric(

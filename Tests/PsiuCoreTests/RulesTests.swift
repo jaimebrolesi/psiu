@@ -30,6 +30,42 @@ struct WaitLevelsTests {
     }
 }
 
+@Suite("Waits you answered from the panel")
+struct AnsweredWaitsTests {
+    @Test func aClickedWaitShowsAsWorkingUntilTheNextEvent() {
+        var answered = AnsweredWaits()
+        let waiting = session("a", .awaiting, since: 100)
+        let took = answered.answer(waiting, now: 160)
+        #expect(took)
+        let shown = answered.apply([waiting, session("b", .awaiting, since: 120)])
+        #expect(shown.map(\.state) == [.running, .awaiting])
+        #expect(shown[0].since == 160)
+        // The hook's next event (the tool ended) takes over, and the click is forgotten.
+        let moved = answered.apply([session("a", .running, since: 190)])
+        #expect(moved.first?.since == 190)
+        let again = answered.apply([session("a", .awaiting, since: 100)])
+        #expect(again.first?.state == .awaiting)
+    }
+
+    @Test func aBurntWaitThatYouAnsweredRevives() {
+        let now = 10_000.0
+        var answered = AnsweredWaits()
+        let burnt = [session("a", .awaiting, since: now - 2000)]
+        let before = WaitLevels(sessions: burnt, now: now)
+        answered.answer(burnt[0], now: now)
+        let shown = answered.apply(burnt)
+        #expect(WaitLevels(sessions: shown, now: now).revives(from: before, sessions: shown))
+    }
+
+    @Test func onlyAWaitCanBeAnswered() {
+        var answered = AnsweredWaits()
+        let took = answered.answer(session("a", .done, since: 100), now: 160)
+        #expect(!took)
+        let shown = answered.apply([session("a", .done, since: 100)])
+        #expect(shown.first?.state == .done)
+    }
+}
+
 @Suite("Usage forecast")
 struct UsageForecasterTests {
     func limits(_ pct: Double, at t: Double, resets: Double) -> LimitsFile {

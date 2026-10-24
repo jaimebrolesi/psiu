@@ -14,8 +14,10 @@ struct RobotView: NSViewRepresentable {
     var peeking = false
     /// A compacted session finished: the green Psiu wears a purple headband.
     var bandaged = false
-    /// Until when a burnt Psiu is shaking off the soot (0.8 s).
+    /// Until when a burnt Psiu is shaking off the soot (RobotRevival.duration).
     var revivingUntil: Date? = nil
+    /// A Psiu you answered from the panel, breathing out of yellow or red.
+    var relief: ReliefCue? = nil
     /// Nobody can see the robot: stop animating it.
     var paused = false
 
@@ -23,8 +25,14 @@ struct RobotView: NSViewRepresentable {
 
     func updateNSView(_ view: RobotLayerView, context: Context) {
         view.update(look: .init(color: color, tired: tired, peeking: peeking, bandaged: bandaged),
-                    revivingUntil: revivingUntil, paused: paused)
+                    revivingUntil: revivingUntil, relief: relief, paused: paused)
     }
+}
+
+/// Relief out of `from`, ending at `until` (RobotRelief.duration).
+struct ReliefCue: Equatable {
+    var from: RobotColor
+    var until: Date
 }
 
 /// What the robot looks like; any change rebuilds its layers.
@@ -40,11 +48,11 @@ struct RobotLook: Equatable {
 ///   root
 ///    └ stage: the robot at the size it was drawn for (clipped to the grid while peeking; scaled while resizing)
 ///       └ head: head movement (headMotion)
-///       └ revive: the soot shake while reviving
-///          ├ body: shell, visor, headband (+ the burnt shell fading out while reviving)
+///       └ revive: the soot shake while reviving, the breath while relieved
+///          ├ body: shell, visor, headband (+ the burnt or the old shell fading out while reviving or relieved)
 ///          ├ eyeShift: the eyes scanning sideways (eyeShift)
-///          │  └ eyes: frames of the LED eyes
-///          └ drop, embers, smoke, particles: frames
+///          │  └ eyes: frames of the LED eyes (hidden while relieved eyes are shut)
+///          └ drop, embers, smoke, particles: frames (particles: the smoke curtain, or the shut eyes and the puff)
 final class RobotLayerView: NSView {
     /// Room around the grid, so smoke and soot can leave the head without being cut.
     static let margin: CGFloat = 8
@@ -56,6 +64,7 @@ final class RobotLayerView: NSView {
 
     private var look: RobotLook?
     private var revivingUntil: Date?
+    private var relief: ReliefCue?
     private var paused = false
     private var built: (look: RobotLook, size: CGSize, scale: CGFloat)?
     private var rebuildLater: Task<Void, Never>?
@@ -93,13 +102,16 @@ final class RobotLayerView: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func update(look: RobotLook, revivingUntil: Date?, paused: Bool) {
+    func update(look: RobotLook, revivingUntil: Date?, relief: ReliefCue?, paused: Bool) {
         let lookChanged = look != self.look, pausedChanged = paused != self.paused
+        let newRelief = relief != self.relief
         self.look = look
         self.paused = paused
+        self.relief = relief
         if lookChanged { rebuild() } else if pausedChanged { animate() }
         if let until = revivingUntil, until != self.revivingUntil, until > Date() { animateRevival(until) }
         self.revivingUntil = revivingUntil
+        if newRelief, !lookChanged, let relief, relief.until > Date() { animateRelief(relief) }
     }
 
     override func layout() {
@@ -196,6 +208,7 @@ final class RobotLayerView: NSView {
         built = (look, size, scale)
         animate()
         if let until = revivingUntil, until > Date() { animateRevival(until) }
+        if let relief, relief.until > Date() { animateRelief(relief) }
     }
 
     /// A frame of a strip is drawn from (-margin, -margin) of the view, measured from the top.
@@ -295,24 +308,25 @@ final class RobotLayerView: NSView {
         return anim
     }
 
-    /// Reviving (0.8 s): the soot shake, the burnt shell fading into the new color and the soot flying off.
+    /// Reviving (RobotRevival.duration): the soot shake, the burnt shell fading into the new color and the smoke curtain.
     private func animateRevival(_ until: Date) {
         guard !paused, let look, let built else { return }
-        let start = until.timeIntervalSinceReferenceDate - 0.8
+        let duration = RobotRevival.duration
+        let start = until.timeIntervalSinceReferenceDate - duration
         let refNow = Date().timeIntervalSinceReferenceDate
         let begin = root.convertTime(CACurrentMediaTime(), from: nil) + (start - refNow)
         func once(_ anim: CAAnimation, on layer: CALayer, key: String) {
             anim.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)   // the 10 Hz shake
-            anim.duration = 0.8
+            anim.duration = duration
             anim.beginTime = begin
             anim.isRemovedOnCompletion = true
             layer.add(anim, forKey: key)
         }
         let shake = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        let n = 96   // 120 a second
+        let n = Int(duration * 120)   // 120 a second
         shake.values = (0...n).map { j -> NSNumber in
             let p = Double(j) / Double(n)
-            return NSNumber(value: -revivalShake(p, start + 0.8 * p) * .pi / 180)
+            return NSNumber(value: -revivalShake(p, start + duration * p) * .pi / 180)
         }
         shake.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
         once(shake, on: revive, key: "revive")
@@ -326,7 +340,7 @@ final class RobotLayerView: NSView {
         fade.fromValue = 1
         fade.toValue = 0
         once(fade, on: burntBody, key: "revive")
-        let soot = Flipbook(part: .particles, look: look, period: 0.8, size: built.size, scale: built.scale, revival: nil)
+        let soot = Flipbook(part: .particles, look: look, period: duration, size: built.size, scale: built.scale, revival: nil)
         particles.frame = tileFrame(soot.tileSize, in: built.size)
         particles.contents = soot.image
         CATransaction.commit()
@@ -340,6 +354,67 @@ final class RobotLayerView: NSView {
         group.animations = [frames, visible]
         once(group, on: particles, key: "revive")
     }
+
+    /// Relieved (RobotRelief.duration): the breath, the old shell fading into the new color, the eyes shut and the puff.
+    private func animateRelief(_ relief: ReliefCue) {
+        guard !paused, let look, let built else { return }
+        let duration = RobotRelief.duration
+        let start = relief.until.timeIntervalSinceReferenceDate - duration
+        let refNow = Date().timeIntervalSinceReferenceDate
+        let begin = root.convertTime(CACurrentMediaTime(), from: nil) + (start - refNow)
+        let (_, s) = grid(built.size)
+        func once(_ anim: CAAnimation, on layer: CALayer) {
+            anim.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            anim.duration = duration
+            anim.beginTime = begin
+            anim.isRemovedOnCompletion = true
+            layer.add(anim, forKey: "relief")
+        }
+        let n = 54   // 60 a second
+        let breath = CAKeyframeAnimation(keyPath: "transform")
+        breath.values = (0...n).map { j -> NSValue in
+            let p = Double(j) / Double(n)
+            let (dy, tilt) = reliefMotion(RobotRelief(from: relief.from, progress: p), start + duration * p)
+            return NSValue(caTransform3D: CATransform3DConcat(CATransform3DMakeRotation(-tilt * .pi / 180, 0, 0, 1),
+                                                              CATransform3DMakeTranslation(0, -dy * s, 0)))
+        }
+        breath.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
+        once(breath, on: revive)
+        // The old shell on top fades out linearly, like drawRobot's mix.
+        var old = look
+        old.color = relief.from
+        old.tired = false
+        old.bandaged = false
+        let oldShell = Flipbook(part: .body, look: old, period: nil, size: built.size, scale: built.scale, revival: nil)
+        let shut = Flipbook(part: .relief, look: look, period: duration, size: built.size, scale: built.scale, revival: nil,
+                            reliefFrom: relief.from)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        burntBody.frame = tileFrame(oldShell.tileSize, in: built.size)
+        burntBody.contents = oldShell.image
+        burntBody.contentsRect = oldShell.rects.first ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+        particles.frame = tileFrame(shut.tileSize, in: built.size)
+        particles.contents = shut.image
+        CATransaction.commit()
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        once(fade, on: burntBody)
+        // The new state's eyes wait until the shut ones open.
+        let hidden = CAKeyframeAnimation(keyPath: "opacity")
+        hidden.calculationMode = .discrete
+        hidden.values = [0, 1]
+        hidden.keyTimes = [0, NSNumber(value: RobotRelief.eyesOpen), 1]
+        once(hidden, on: eyes)
+        let frames = CAKeyframeAnimation(keyPath: "contentsRect")
+        frames.calculationMode = .discrete
+        frames.values = shut.runs.map { NSValue(rect: shut.rects[$0.frame]) }
+        frames.keyTimes = (shut.runs.map { $0.start } + [1]).map { NSNumber(value: $0) }
+        let visible = CAKeyframeAnimation(keyPath: "opacity")
+        visible.values = [1, 1]
+        let group = CAAnimationGroup()
+        group.animations = [frames, visible]
+        once(group, on: particles)
+    }
 }
 
 /// A part of the robot drawn by drawRobot at 30 frames a second over its period, identical frames kept once,
@@ -352,7 +427,8 @@ private struct Flipbook {
     let tileSize: CGSize                      // one frame, in points, a whole number of pixels wide and high
 
     @MainActor
-    init(part: RobotPart, look: RobotLook, period: Double?, size: CGSize, scale: CGFloat, revival: Double?) {
+    init(part: RobotPart, look: RobotLook, period: Double?, size: CGSize, scale: CGFloat, revival: Double?,
+         reliefFrom: RobotColor? = nil) {
         self.period = period
         let m = RobotLayerView.margin
         // Whole pixels per frame, or the frames would drift when they are cut out of the strip.
@@ -361,14 +437,16 @@ private struct Flipbook {
         tileSize = tile
         let count = period.map { max(1, Int(($0 * RobotLayerView.fps).rounded())) } ?? 1
         let times: [Double] = (0..<count).map { i in (period ?? 0) * Double(i) / Double(count) }
-        // Particles play once over the revival: their frame number is the revival's progress.
-        let progress: [Double?] = part == .particles ? (0..<count).map { Double($0) / Double(count) } : times.map { _ in revival }
+        // Particles and relief play once: their frame number is the progress.
+        let once = part == .particles || part == .relief
+        let progress: [Double?] = once ? (0..<count).map { Double($0) / Double(count) } : times.map { _ in revival }
         let sheet = Canvas { g, _ in
             for i in 0..<count {
                 var gg = g
                 gg.translateBy(x: CGFloat(i) * tile.width + m, y: m)
+                let relief = reliefFrom.map { RobotRelief(from: $0, progress: progress[i] ?? 0) }
                 drawRobot(&gg, size, look.color, look.tired, times[i], peeking: look.peeking,
-                          bandaged: look.bandaged, revival: progress[i], part: part)
+                          bandaged: look.bandaged, revival: part == .relief ? nil : progress[i], relief: relief, part: part)
             }
         }
         .frame(width: tile.width * CGFloat(count), height: tile.height)
