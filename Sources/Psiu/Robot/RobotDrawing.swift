@@ -375,17 +375,20 @@ private func drawSmokeCurtain(_ g: inout GraphicsContext, _ p: Double) {
         (9, 31, 7, 0.00), (20, 37, 8, 0.06), (30, 33, 9, 0.02), (40, 37, 8, 0.08), (51, 31, 7, 0.04),
         (14, 19, 7, 0.12), (30, 15, 8, 0.15), (46, 19, 7, 0.10),
     ]
-    // One soft cloud: the puffs are drawn opaque in a blurred layer, so where they overlap they merge.
+    // One soft cloud: puffs with soft edges (gradients draw the same on every Mac, unlike a blur) in one layer.
+    let smoke = Color(hex: 0x9A978F)
+    let soft = Gradient(stops: [.init(color: smoke, location: 0), .init(color: smoke, location: 0.45),
+                                .init(color: smoke.opacity(0), location: 1)])
     g.drawLayer { cloud in
         cloud.opacity = 0.9 * pow(1 - p, 1.3)
-        cloud.addFilter(.blur(radius: 2.2))
         for c in puffs {
             let q = max(0, min(1, (p - c.delay) / 0.85))
             let eased = 1 - (1 - q) * (1 - q)
             let r = c.r * (0.9 + 0.9 * eased)
             let center = CGPoint(x: c.x + (c.x - 30) * 0.35 * eased, y: c.y - 24 * eased)
-            cloud.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)),
-                       with: .color(Color(hex: 0x9A978F)))
+            let edge = r * 1.35
+            cloud.fill(Path(ellipseIn: CGRect(x: center.x - edge, y: center.y - edge, width: 2 * edge, height: 2 * edge)),
+                       with: .radialGradient(soft, center: center, startRadius: 0, endRadius: edge))
         }
     }
 }
