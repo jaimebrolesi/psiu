@@ -149,3 +149,47 @@ struct ConcurrentHookTests {
         #expect(readFile(SessionRecord.self, at: p.session("s1"))?.compactions == 50)
     }
 }
+
+@Suite("Claude Code's process")
+struct ClaudeProcessTests {
+    @Test func everyEventRecordsTheProcessAResumedSessionRunsInANewOne() throws {
+        let first = ClaudeProcess(pid: 100, start: 5), resumed = ClaudeProcess(pid: 200, start: 9)
+        guard case .write(_, let r1) = applyHookEvent(["session_id": "s", "hook_event_name": "SessionStart"], to: nil, now: 0,
+                                                      terminal: noTerminal, process: first),
+              case .write(_, let r2) = applyHookEvent(["session_id": "s", "hook_event_name": "UserPromptSubmit", "prompt": "x"], to: r1, now: 1,
+                                                      terminal: noTerminal, process: resumed) else {
+            Issue.record("expected writes"); return
+        }
+        #expect(r1.pid == 100 && r1.pidStart == 5)
+        #expect(r2.pid == 200 && r2.pidStart == 9)
+    }
+
+    @Test func aKilledProcessIsNoLongerRunning() throws {
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["300"]
+        try sleeper.run()
+        let info = try #require(ClaudeProcess.bsdInfo(sleeper.processIdentifier))
+        let process = ClaudeProcess(pid: sleeper.processIdentifier, start: Double(info.pbi_start_tvsec))
+        #expect(process.isRunning)
+        #expect(!ClaudeProcess(pid: process.pid, start: process.start - 60).isRunning)   // same pid, another process
+
+        // A session of that process shows up; once it is killed (no SessionEnd), the session goes away.
+        let home = TemporaryHome(), p = home.paths
+        let now = Date().timeIntervalSince1970
+        writeFile({ var r = SessionRecord(); r.state = "running"; r.since = now; r.updated = now
+                    r.pid = process.pid; r.pidStart = process.start; return r }(), to: p.session("s"))
+        let repo = SessionRepository(paths: p)
+        #expect(repo.sessions(now: now).map(\.id) == ["s"])
+        kill(sleeper.processIdentifier, SIGKILL)
+        sleeper.waitUntilExit()
+        #expect(!process.isRunning)
+        #expect(repo.sessions(now: now).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: p.session("s").path))
+    }
+
+    @Test func theHookFindsTheProcessAboveIt() throws {
+        let process = try #require(ClaudeProcess.current())
+        #expect(process.isRunning)
+    }
+}

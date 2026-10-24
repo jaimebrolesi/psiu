@@ -14,11 +14,14 @@ public struct SessionRecord: Codable, Equatable, Sendable {
     public var bundle: String?
     public var termprog: String?
     public var compactions: Int?
+    /// The Claude Code process, and when it started (see ClaudeProcess).
+    public var pid: Int32?
+    public var pidStart: Double?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case state, since, updated, project, bg, tty, bundle, termprog
+        case state, since, updated, project, bg, tty, bundle, termprog, pid, pidStart
         case summary = "resumo", compactions = "compactacoes"
     }
 
@@ -34,6 +37,8 @@ public struct SessionRecord: Codable, Equatable, Sendable {
         bundle = c.lenient(String.self, .bundle)
         termprog = c.lenient(String.self, .termprog)
         compactions = c.number(.compactions).map { Int($0) }
+        pid = c.number(.pid).map { Int32($0) }
+        pidStart = c.number(.pidStart)
     }
 }
 

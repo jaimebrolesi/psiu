@@ -4,10 +4,14 @@ import Foundation
 /// Files that didn't change since the last pass aren't read again.
 public final class SessionRepository {
     public let paths: PsiuPaths
+    private let isRunning: (ClaudeProcess) -> Bool
     private var cache: [String: (date: Date, value: Any)] = [:]
     private var filesSeen = Set<String>()
 
-    public init(paths: PsiuPaths) { self.paths = paths }
+    public init(paths: PsiuPaths, isRunning: @escaping (ClaudeProcess) -> Bool = { $0.isRunning }) {
+        self.paths = paths
+        self.isRunning = isRunning
+    }
 
     private func cached<T: Decodable>(_ type: T.Type, _ url: URL) -> T? {
         let path = url.path
@@ -23,7 +27,8 @@ public final class SessionRepository {
         return value
     }
 
-    /// The open sessions, newest first. Sessions abandoned for more than 12 h are deleted.
+    /// The open sessions, newest first. Sessions whose Claude Code process is gone, or that were abandoned for
+    /// more than 12 h (older versions didn't record the process), are deleted.
     public func sessions(now: Double) -> [Session] {
         var list: [Session] = []
         let files = (try? FileManager.default.contentsOfDirectory(at: paths.sessions, includingPropertiesForKeys: nil)) ?? []
@@ -32,7 +37,8 @@ public final class SessionRepository {
             let id = url.deletingPathExtension().lastPathComponent
             let metricsURL = paths.metrics(id)
             let updated = r.updated ?? 0
-            if now - updated > 12 * 3600 {   // session abandoned for more than 12 h
+            let process = r.pid.map { ClaudeProcess(pid: $0, start: r.pidStart ?? 0) }
+            if now - updated > 12 * 3600 || process.map({ !isRunning($0) }) == true {
                 try? FileManager.default.removeItem(at: url)
                 try? FileManager.default.removeItem(at: metricsURL)
                 continue

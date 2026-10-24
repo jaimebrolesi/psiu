@@ -61,7 +61,7 @@ public enum HookOutcome: Equatable, Sendable {
 
 /// What a Claude Code hook event does to the session's record. No files and no clock, so it can be tested.
 public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, now: Double,
-                           terminal: () -> TerminalInfo) -> HookOutcome {
+                           terminal: () -> TerminalInfo, process: ClaudeProcess? = nil) -> HookOutcome {
     guard let rawID = input["session_id"] as? String else { return .ignore }
     let sid = safeID(rawID)
     guard !sid.isEmpty else { return .ignore }
@@ -77,6 +77,11 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
         rec.bundle = t.bundle
         rec.termprog = t.termprog
         rec.tty = t.tty
+    }
+    // On every event: a resumed session runs in a new process.
+    if let process {
+        rec.pid = process.pid
+        rec.pidStart = process.start
     }
     let previousState = rec.state
 
@@ -150,13 +155,15 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
 /// `Psiu hook`: Claude Code sends each event on standard input.
 public func runHook(paths: PsiuPaths = .current) {
     let data = FileHandle.standardInput.readDataToEndOfFile()
-    handleHookEvent(data, paths: paths, now: Date().timeIntervalSince1970, terminal: TerminalInfo.current)
+    handleHookEvent(data, paths: paths, now: Date().timeIntervalSince1970, terminal: TerminalInfo.current,
+                    process: ClaudeProcess.current())
     // Nothing on stdout: on UserPromptSubmit, anything printed here would go into Claude's context.
 }
 
 /// Applies one event to its session's file. Claude Code runs the hooks of parallel tool calls at the same time,
 /// so reading and writing happen under a lock: otherwise one hook could overwrite what another just wrote.
-public func handleHookEvent(_ data: Data, paths: PsiuPaths, now: Double, terminal: () -> TerminalInfo) {
+public func handleHookEvent(_ data: Data, paths: PsiuPaths, now: Double, terminal: () -> TerminalInfo,
+                            process: ClaudeProcess? = nil) {
     paths.ensureDirectories()
     guard let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
     let lock = open(paths.hooksLock.path, O_CREAT | O_RDWR, 0o644)
@@ -164,7 +171,7 @@ public func handleHookEvent(_ data: Data, paths: PsiuPaths, now: Double, termina
     defer { if lock >= 0 { close(lock) } }   // closing releases the lock
     let id = (input["session_id"] as? String).map(safeID) ?? ""
     let existing = id.isEmpty ? nil : readFile(SessionRecord.self, at: paths.session(id))
-    switch applyHookEvent(input, to: existing, now: now, terminal: terminal) {
+    switch applyHookEvent(input, to: existing, now: now, terminal: terminal, process: process) {
     case .ignore:
         break
     case .remove(let id):

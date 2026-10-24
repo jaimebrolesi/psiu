@@ -42,6 +42,18 @@ struct RepositoryTests {
         #expect(!FileManager.default.fileExists(atPath: p.metrics("old").path))
     }
 
+    @Test func deletesSessionsWhoseProcessIsGone() throws {
+        let home = TemporaryHome(), p = home.paths
+        try write(#"{"state":"running","since":1,"updated":10,"pid":111,"pidStart":5}"#, to: p.session("dead"))
+        try write(#"{"ctx":10}"#, to: p.metrics("dead"))
+        try write(#"{"state":"running","since":1,"updated":10,"pid":222,"pidStart":5}"#, to: p.session("alive"))
+        try write(#"{"state":"running","since":1,"updated":10}"#, to: p.session("older"))   // no pid: the 12 h rule
+        let repo = SessionRepository(paths: p, isRunning: { $0.pid == 222 })
+        #expect(repo.sessions(now: 10).map(\.id).sorted() == ["alive", "older"])
+        #expect(!FileManager.default.fileExists(atPath: p.session("dead").path))
+        #expect(!FileManager.default.fileExists(atPath: p.metrics("dead").path))
+    }
+
     @Test func toleratesBrokenAndOddFiles() throws {
         let home = TemporaryHome(), p = home.paths
         try write("not json", to: p.session("broken"))
