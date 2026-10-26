@@ -208,7 +208,7 @@ final class RobotLayerView: NSView {
             Flipbook(part: part, look: look, period: period, size: size, scale: scale, revival: revival)
         }
         show(strip(.body, period: nil), in: body)
-        show(strip(.eyes, period: eyesPeriod(c, tired: tired, peeking: peeking)), in: eyes)
+        show(strip(.eyes, period: Self.eyesPeriod(c, tired: tired, peeking: peeking)), in: eyes)
         let sweats = tired && (c == .blue || c == .backgroundBlue)
         drop.isHidden = !sweats
         if sweats { show(strip(.drop, period: 1.6), in: drop) }
@@ -241,7 +241,7 @@ final class RobotLayerView: NSView {
     }
 
     /// The loop of each part's eyes, as drawRobot draws them (nil: they don't change).
-    private func eyesPeriod(_ c: RobotColor, tired: Bool, peeking: Bool) -> Double? {
+    static func eyesPeriod(_ c: RobotColor, tired: Bool, peeking: Bool) -> Double? {
         switch c {
         case .red: return 2.1                                // flames 0.42 s and cores 0.3 s
         case .blue where tired, .backgroundBlue where tired: return 2.6   // drooping eyes
@@ -435,7 +435,10 @@ final class RobotLayerView: NSView {
 
 /// A part of the robot drawn by drawRobot at 30 frames a second over its period, identical frames kept once,
 /// side by side in one image.
-private struct Flipbook {
+struct Flipbook {
+    /// Widest image drawn in one go: past the GPU's limit (16384 pixels), ImageRenderer silently returns a blank one.
+    static let maxWidth = 8192
+
     let image: CGImage?
     let rects: [CGRect]                       // contentsRect of each kept frame
     let runs: [(start: Double, frame: Int)]   // where each run of identical frames starts, in the period
@@ -456,35 +459,48 @@ private struct Flipbook {
         // Particles and relief play once: their frame number is the progress.
         let once = part == .particles || part == .relief
         let progress: [Double?] = once ? (0..<count).map { Double($0) / Double(count) } : times.map { _ in revival }
-        let sheet = Canvas { g, _ in
-            for i in 0..<count {
-                var gg = g
-                gg.translateBy(x: CGFloat(i) * tile.width + m, y: m)
-                let relief = reliefFrom.map { RobotRelief(from: $0, progress: progress[i] ?? 0) }
-                drawRobot(&gg, size, look.color, look.tired, times[i], peeking: look.peeking,
-                          bandaged: look.bandaged, revival: part == .relief ? nil : progress[i], relief: relief, part: part)
-            }
-        }
-        .frame(width: tile.width * CGFloat(count), height: tile.height)
-        let renderer = ImageRenderer(content: sheet)
-        renderer.scale = scale
-        guard let full = renderer.cgImage, full.width >= tilePx.w * count, full.height >= tilePx.h else {
-            image = nil; rects = []; runs = []; return
-        }
-        // Keeps each distinct frame once.
+        // Drawn in chunks of frames side by side, each one narrower than maxWidth.
         let tileW = tilePx.w, tileH = tilePx.h
-        let pixels = Flipbook.bytes(full)
-        var kept: [Int] = []          // frame index in `full` of each kept frame
+        let perChunk = max(1, Self.maxWidth / tileW)
+        var chunks: [(image: CGImage, pixels: [UInt8])] = []
+        for start in stride(from: 0, to: count, by: perChunk) {
+            let n = min(perChunk, count - start)
+            let sheet = Canvas { g, _ in
+                for j in 0..<n {
+                    let i = start + j
+                    var gg = g
+                    gg.translateBy(x: CGFloat(j) * tile.width + m, y: m)
+                    let relief = reliefFrom.map { RobotRelief(from: $0, progress: progress[i] ?? 0) }
+                    drawRobot(&gg, size, look.color, look.tired, times[i], peeking: look.peeking,
+                              bandaged: look.bandaged, revival: part == .relief ? nil : progress[i], relief: relief, part: part)
+                }
+            }
+            .frame(width: tile.width * CGFloat(n), height: tile.height)
+            let renderer = ImageRenderer(content: sheet)
+            renderer.scale = scale
+            guard let piece = renderer.cgImage, piece.width >= tileW * n, piece.height >= tileH else {
+                image = nil; rects = []; runs = []; return
+            }
+            chunks.append((piece, Flipbook.bytes(piece)))
+        }
+        // Frame i is in chunk i / perChunk, starting at this pixel of its rows.
+        func x(_ i: Int) -> Int { (i % perChunk) * tileW }
+        // Keeps each distinct frame once.
+        var kept: [Int] = []          // frame index of each kept frame
         var runs: [(start: Double, frame: Int)] = []
         for i in 0..<count {
-            let same = kept.firstIndex { Flipbook.equal(pixels, full.width, tileW, tileH, $0, i) }
+            let b = chunks[i / perChunk]
+            let same = kept.firstIndex { k in
+                let a = chunks[k / perChunk]
+                return Flipbook.equal(a.pixels, a.image.width, x(k), b.pixels, b.image.width, x(i), tileW, tileH)
+            }
             let k = same ?? { kept.append(i); return kept.count - 1 }()
             if runs.last?.frame != k { runs.append((Double(i) / Double(count), k)) }
         }
         let ctx = CGContext(data: nil, width: tileW * kept.count, height: tileH, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         for (k, i) in kept.enumerated() {
-            if let piece = full.cropping(to: CGRect(x: i * tileW, y: 0, width: tileW, height: tileH)) {
+            if let piece = chunks[i / perChunk].image.cropping(to: CGRect(x: x(i), y: 0, width: tileW, height: tileH)) {
                 ctx.draw(piece, in: CGRect(x: k * tileW, y: 0, width: tileW, height: tileH))
             }
         }
@@ -504,11 +520,16 @@ private struct Flipbook {
         return data
     }
 
-    private static func equal(_ px: [UInt8], _ width: Int, _ tileW: Int, _ tileH: Int, _ a: Int, _ b: Int) -> Bool {
-        // Rows of the strip are `width` pixels long; frame k starts at pixel k * tileW of each row.
-        let row = width * 4, len = tileW * 4
-        return px.withUnsafeBufferPointer { p in
-            (0..<tileH).allSatisfy { y in memcmp(p.baseAddress! + y * row + a * len, p.baseAddress! + y * row + b * len, len) == 0 }
+    private static func equal(_ a: [UInt8], _ aWidth: Int, _ aX: Int, _ b: [UInt8], _ bWidth: Int, _ bX: Int,
+                              _ tileW: Int, _ tileH: Int) -> Bool {
+        // Rows of a chunk are `width` pixels long; a frame starts at pixel x of each row.
+        let len = tileW * 4
+        return a.withUnsafeBufferPointer { pa in
+            b.withUnsafeBufferPointer { pb in
+                (0..<tileH).allSatisfy { y in
+                    memcmp(pa.baseAddress! + (y * aWidth + aX) * 4, pb.baseAddress! + (y * bWidth + bX) * 4, len) == 0
+                }
+            }
         }
     }
 }
