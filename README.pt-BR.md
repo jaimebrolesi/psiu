@@ -53,10 +53,10 @@ O número ao lado do robô é quanto você já usou da janela de 5 horas do seu 
 ## Um pontinho
 
 <p align="center">
-  <img src="docs/dots.svg" width="300" alt="Ponto verde ao lado do robô">
+  <img src="docs/dots.svg" width="300" alt="Ponto verde na cabeça do robô">
 </p>
 
-**Ponto verde:** outra sessão terminou e você não viu, enquanto o robô está mostrando algo mais urgente. Ele só aparece quando diz algo que o robô ainda não está mostrando. No MacBook, o notch se alarga um pouco enquanto o ponto está aceso, para a câmera não escondê-lo.
+**Ponto verde:** outra sessão terminou e você não viu, enquanto o robô está mostrando algo mais urgente. Ele só aparece quando diz algo que o robô ainda não está mostrando. Ele fica no canto da cabeça do robô, como um selo de notificação, então o notch nunca precisa crescer por causa dele.
 
 ## O painel
 

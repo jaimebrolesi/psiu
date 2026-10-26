@@ -53,10 +53,10 @@ The number next to the robot is how much of your 5-hour plan window you have use
 ## One little dot
 
 <p align="center">
-  <img src="docs/dots.svg" width="300" alt="Green dot next to the robot">
+  <img src="docs/dots.svg" width="300" alt="Green dot on the robot's head">
 </p>
 
-**Green dot**: another session finished and you have not seen it, while the robot is busy showing something more urgent. It only appears when it tells you something the robot is not already showing. On a MacBook, the notch widens a little while the dot is lit, so the camera doesn't hide it.
+**Green dot**: another session finished and you have not seen it, while the robot is busy showing something more urgent. It only appears when it tells you something the robot is not already showing. It sits on the corner of the robot's head, like a notification badge, so the notch never has to grow for it.
 
 ## The panel
 
