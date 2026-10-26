@@ -65,7 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: .milliseconds(500))
                 guard let self else { return }
                 self.store.reload()
-                self.updateDotsRoom()
                 self.refitOpenPanels()
                 self.checkDemo()
             }
@@ -238,43 +237,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         entry.geo.screenFrame = f
         entry.geo.h = notch > 0 ? screen.safeAreaInsets.top : (menuBarHeight >= 20 ? menuBarHeight : 24)
         entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 30   // ears that stop short of the menu bar icons
-        entry.geo.hasNotch = notch > 0
-        entry.geo.dotsRoom = dotsRoom(for: entry.geo)
         applyFrame(entry)
-    }
-
-    /// On screens with a physical notch, the closed notch widens while a dot is lit; elsewhere the dot is already visible.
-    func dotsRoom(for geo: PanelGeometry) -> CGFloat {
-        geo.hasNotch && store.greenDot ? PanelGeometry.dotsRoomWidth : 0
-    }
-
-    func updateDotsRoom() {
-        for (id, entry) in panels {
-            let target = dotsRoom(for: entry.geo)
-            guard entry.geo.dotsRoom != target else { continue }
-            if entry.geo.isOpen {   // the open panel doesn't depend on it
-                entry.geo.dotsRoom = target
-            } else if target > entry.geo.dotsRoom {
-                // Growing: first the window (transparent), then the notch stretches inside it.
-                let g = entry.geo, w = g.w + 2 * target
-                entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - g.h, width: w, height: g.h), display: true)
-                withAnimation(springAnimation) { entry.geo.dotsRoom = target }
-            } else {
-                // Shrinking: the notch first, then the window.
-                withAnimation(springAnimation) { entry.geo.dotsRoom = target }
-                Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
-                    self.applyFrame(entry)
-                }
-            }
-        }
     }
 
     /// Closed, the window is the size of the notch; open, the size of the panel. Always at the top, centered.
     func applyFrame(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry)) {
         let g = entry.geo
-        let w = g.isOpen ? g.W : g.closedWidth
+        let w = g.isOpen ? g.W : g.w
         let h = g.isOpen ? g.H : g.h
         entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - h, width: w, height: h), display: true)
     }
@@ -284,7 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if entry.geo.isOpen { closePanel(id); return }
         closeAll()
         store.acknowledge()
-        entry.geo.W = max(entry.geo.closedWidth, 340)
+        entry.geo.W = max(entry.geo.w, 340)
         entry.geo.H = openHeight(entry.geo)
         // First the window grows (transparent), then the notch stretches inside it.
         let g = entry.geo

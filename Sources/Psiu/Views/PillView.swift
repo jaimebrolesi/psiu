@@ -18,12 +18,11 @@ struct PillView: View {
                     HStack(spacing: 6) {
                         usage
                         Spacer(minLength: 0)
-                        if store.greenDot { Circle().fill(Palette.finishedDot).frame(width: 5, height: 5) }
                         // Peeking, the robot rests on the bottom of the strip: the clipping edge matches the notch's edge.
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
                                   bandaged: store.bandaged, revivingUntil: store.revivingUntil, relief: store.relief,
-                                  paused: store.displayAsleep)
+                                  paused: store.displayAsleep, badge: store.greenDot)
                             .aspectRatio(60.0 / 46.0, contentMode: .fit)
                             .frame(width: geo.isOpen ? 42 : 26, height: geo.isOpen ? 32 : 20)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
@@ -45,7 +44,7 @@ struct PillView: View {
                     }
                 }
             }
-            .frame(width: geo.isOpen ? geo.W : geo.closedWidth, height: geo.isOpen ? geo.H : geo.h)
+            .frame(width: geo.isOpen ? geo.W : geo.w, height: geo.isOpen ? geo.H : geo.h)
             .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
             .overlay {
                 if store.color == .red {

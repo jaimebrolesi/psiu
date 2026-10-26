@@ -20,12 +20,14 @@ struct RobotView: NSViewRepresentable {
     var relief: ReliefCue? = nil
     /// Nobody can see the robot: stop animating it.
     var paused = false
+    /// A session finished while Psiu shows another color: a green badge on the head's corner.
+    var badge = false
 
     func makeNSView(context: Context) -> RobotLayerView { RobotLayerView() }
 
     func updateNSView(_ view: RobotLayerView, context: Context) {
         view.update(look: .init(color: color, tired: tired, peeking: peeking, bandaged: bandaged),
-                    revivingUntil: revivingUntil, relief: relief, paused: paused)
+                    revivingUntil: revivingUntil, relief: relief, paused: paused, badge: badge)
     }
 }
 
@@ -53,6 +55,7 @@ struct RobotLook: Equatable {
 ///          ├ eyeShift: the eyes scanning sideways (eyeShift)
 ///          │  └ eyes: frames of the LED eyes (hidden while relieved eyes are shut)
 ///          └ drop, embers, smoke, particles: frames (particles: the smoke curtain, or the shut eyes and the puff)
+///       └ badge: the green badge on the head's top left corner
 final class RobotLayerView: NSView {
     /// Room around the grid, so smoke and soot can leave the head without being cut.
     static let margin: CGFloat = 8
@@ -81,6 +84,7 @@ final class RobotLayerView: NSView {
     private let embers = CALayer()
     private let smoke = CALayer()
     private let particles = CALayer()
+    private let badge = CAShapeLayer()
     private var strips: [CALayer: Flipbook] = [:]
 
     init() {
@@ -94,15 +98,21 @@ final class RobotLayerView: NSView {
         head.addSublayer(revive)
         for l in [body, burntBody, eyeShiftLayer, drop, embers, smoke, particles] { revive.addSublayer(l) }
         eyeShiftLayer.addSublayer(eyes)
-        for l in [root, stage, head, revive, body, burntBody, eyeShiftLayer, eyes, drop, embers, smoke, particles] {
+        head.addSublayer(badge)
+        badge.fillColor = NSColor(Palette.finishedDot).cgColor
+        badge.strokeColor = .black   // the notch's black, cutting the badge out of the shell
+        badge.isHidden = true
+        for l in [root, stage, head, revive, body, burntBody, eyeShiftLayer, eyes, drop, embers, smoke, particles, badge] {
             l.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "contentsRect": NSNull(),
-                         "transform": NSNull(), "opacity": NSNull(), "hidden": NSNull(), "sublayerTransform": NSNull()]
+                         "transform": NSNull(), "opacity": NSNull(), "hidden": NSNull(), "sublayerTransform": NSNull(),
+                         "path": NSNull(), "lineWidth": NSNull()]
         }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func update(look: RobotLook, revivingUntil: Date?, relief: ReliefCue?, paused: Bool) {
+    func update(look: RobotLook, revivingUntil: Date?, relief: ReliefCue?, paused: Bool, badge: Bool = false) {
+        self.badge.isHidden = !badge
         let lookChanged = look != self.look, pausedChanged = paused != self.paused
         let newRelief = relief != self.relief
         self.look = look
@@ -178,6 +188,12 @@ final class RobotLayerView: NSView {
             l.transform = CATransform3DIdentity
         }
         eyeShiftLayer.frame = CGRect(origin: .zero, size: size)
+        // The badge on the grid: 13 of green in a 3.5 ring, centered at (10, 11), inside the grid so peeking doesn't cut it.
+        badge.frame = CGRect(origin: .zero, size: size)
+        badge.path = CGPath(ellipseIn: CGRect(x: o.x + 1.75 * s, y: up(o.y + 19.25 * s, in: size.height), width: 16.5 * s, height: 16.5 * s),
+                            transform: nil)
+        badge.lineWidth = 3.5 * s
+        badge.contentsScale = scale
         strips = [:]
         for l in [body, burntBody, eyes, drop, embers, smoke, particles] {
             l.frame = tileFrame(CGSize(width: size.width + 2 * m, height: size.height + 2 * m), in: size)

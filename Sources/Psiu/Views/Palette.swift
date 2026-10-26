@@ -14,7 +14,7 @@ extension Color {
 enum Palette {
     static let panic = Color(hex: 0xE24B4A)          // red Psiu, a session waiting 10 min or more
     static let burnt = Color(hex: 0x554A43)          // burnt Psiu, 30 min or more
-    static let finishedDot = Color(hex: 0x97C459)    // green dot: a session finished while Psiu shows another color
+    static let finishedDot = Color(hex: 0x97C459)    // green badge: a session finished while Psiu shows another color
     static let tired = Color(hex: 0xAFA9EC)          // purple: context above 80%
     static let tiredOutline = Color(hex: 0xAFA9EC, alpha: 0.55)
     static let tiredText = Color(hex: 0xCECBF6)      // compaction tag and tip
