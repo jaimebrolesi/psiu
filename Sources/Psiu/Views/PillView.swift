@@ -25,10 +25,11 @@ struct PillView: View {
                                   bandaged: store.bandaged, revivingUntil: store.revivingUntil, relief: store.relief,
                                   paused: store.displayAsleep)
                             .aspectRatio(60.0 / 46.0, contentMode: .fit)
-                            .frame(width: geo.isOpen ? 42 : 29, height: geo.isOpen ? 32 : 22)
+                            .frame(width: geo.isOpen ? 42 : 26, height: geo.isOpen ? 32 : 20)
                             .frame(maxHeight: .infinity, alignment: peeking ? .bottom : .center)
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.leading, geo.isOpen ? 10 : 6)
+                    .padding(.trailing, geo.isOpen ? 10 : 2)   // closed: Psiu centered in the 30-point ear
                     .frame(height: geo.stripHeight)
                     .contentShape(Rectangle())
                     .onTapGesture { app.toggleDetail(displayID) }

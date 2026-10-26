@@ -237,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBarHeight = f.maxY - screen.visibleFrame.maxY
         entry.geo.screenFrame = f
         entry.geo.h = notch > 0 ? screen.safeAreaInsets.top : (menuBarHeight >= 20 ? menuBarHeight : 24)
-        entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 46
+        entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 30   // ears that stop short of the menu bar icons
         entry.geo.hasNotch = notch > 0
         entry.geo.dotsRoom = dotsRoom(for: entry.geo)
         applyFrame(entry)
