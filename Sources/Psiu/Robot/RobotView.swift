@@ -22,11 +22,13 @@ struct RobotView: NSViewRepresentable {
     var paused = false
     /// A session finished while Psiu shows another color: a green badge on the head's corner.
     var badge = false
+    /// Something is playing sound: working or idle, Psiu wears headphones.
+    var headset = false
 
     func makeNSView(context: Context) -> RobotLayerView { RobotLayerView() }
 
     func updateNSView(_ view: RobotLayerView, context: Context) {
-        view.update(look: .init(color: color, tired: tired, peeking: peeking, bandaged: bandaged),
+        view.update(look: .init(color: color, tired: tired, peeking: peeking, bandaged: bandaged, headset: headset),
                     revivingUntil: revivingUntil, relief: relief, paused: paused, badge: badge)
     }
 }
@@ -43,6 +45,7 @@ struct RobotLook: Equatable {
     var tired: Bool
     var peeking: Bool
     var bandaged: Bool
+    var headset = false
 }
 
 /// The robot as Core Animation layers: still images and strips of frames drawn once by drawRobot, moved and
@@ -51,7 +54,7 @@ struct RobotLook: Equatable {
 ///    └ stage: the robot at the size it was drawn for (clipped to the grid while peeking; scaled while resizing)
 ///       └ head: head movement (headMotion)
 ///       └ revive: the soot shake while reviving, the breath while relieved
-///          ├ body: shell, visor, headband (+ the burnt or the old shell fading out while reviving or relieved)
+///          ├ body: shell, visor, headband, headset (+ the burnt or the old shell fading out while reviving or relieved)
 ///          ├ eyeShift: the eyes scanning sideways (eyeShift)
 ///          │  └ eyes: frames of the LED eyes (hidden while relieved eyes are shut)
 ///          └ drop, embers, smoke, particles: frames (particles: the smoke curtain, or the shut eyes and the puff)
@@ -401,6 +404,7 @@ final class RobotLayerView: NSView {
         old.color = relief.from
         old.tired = false
         old.bandaged = false
+        old.headset = false
         let oldShell = Flipbook(part: .body, look: old, period: nil, size: built.size, scale: built.scale, revival: nil)
         let shut = Flipbook(part: .relief, look: look, period: duration, size: built.size, scale: built.scale, revival: nil,
                             reliefFrom: relief.from)
@@ -472,7 +476,8 @@ struct Flipbook {
                     gg.translateBy(x: CGFloat(j) * tile.width + m, y: m)
                     let relief = reliefFrom.map { RobotRelief(from: $0, progress: progress[i] ?? 0) }
                     drawRobot(&gg, size, look.color, look.tired, times[i], peeking: look.peeking,
-                              bandaged: look.bandaged, revival: part == .relief ? nil : progress[i], relief: relief, part: part)
+                              bandaged: look.bandaged, headset: look.headset, revival: part == .relief ? nil : progress[i],
+                              relief: relief, part: part)
                 }
             }
             .frame(width: tile.width * CGFloat(n), height: tile.height)

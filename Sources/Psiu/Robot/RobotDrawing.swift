@@ -98,7 +98,7 @@ private func tiredEyes(_ g: inout GraphicsContext, _ led: Color, dx: CGFloat, _ 
     drop.addCurve(to: CGPoint(x: 53, y: 18.4 + y), control1: CGPoint(x: 57, y: 17 + y), control2: CGPoint(x: 55.2, y: 18.4 + y))
     drop.addCurve(to: CGPoint(x: 49, y: 14.8 + y), control1: CGPoint(x: 50.8, y: 18.4 + y), control2: CGPoint(x: 49, y: 17 + y))
     drop.addCurve(to: CGPoint(x: 53, y: 7 + y), control1: CGPoint(x: 49, y: 13 + y), control2: CGPoint(x: 50, y: 11 + y))
-    g.fill(drop, with: .color(Color(hex: 0xEEEDFE, alpha: fade)))
+    g.fill(drop, with: .color(Color(hex: 0x7CC2F7, alpha: fade)))
 }
 
 /// The pieces Core Animation moves on their own (see RobotLayerView). `.all` draws the whole robot, moving,
@@ -201,7 +201,8 @@ func eyeShift(_ color: RobotColor, peeking: Bool, _ t: Double) -> CGFloat {
 }
 
 func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, _ tired: Bool, _ t: Double,
-                          peeking: Bool = false, bandaged: Bool = false, revival: Double? = nil, relief: RobotRelief? = nil,
+                          peeking: Bool = false, bandaged: Bool = false, headset: Bool = false, revival: Double? = nil,
+                          relief: RobotRelief? = nil,
                           part: RobotPart = .all) {
     let s = min(size.width / 60, size.height / 46)
     g.translateBy(x: (size.width - 60 * s) / 2, y: (size.height - 46 * s) / 2)
@@ -229,7 +230,7 @@ func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, 
         g.translateBy(x: -30, y: -25)
     }
 
-    if whole || part == .body { drawBody(&g, s, color, bandaged, shell) }
+    if whole || part == .body { drawBody(&g, s, color, bandaged, headset, shell) }
     let eyesShut = relief.map { $0.progress < RobotRelief.eyesOpen } ?? false
     if (whole && !eyesShut) || part == .eyes || part == .drop || part == .embers || part == .smoke {
         drawEyes(&g, color, tired, peeking, t, led, dx: whole ? eyeShift(color, peeking: peeking, t) : 0, part: part)
@@ -241,8 +242,9 @@ func drawRobot(_ g: inout GraphicsContext, _ size: CGSize, _ color: RobotColor, 
     }
 }
 
-/// Shell, soot streaks, visor and headband.
-private func drawBody(_ g: inout GraphicsContext, _ s: CGFloat, _ color: RobotColor, _ bandaged: Bool, _ shell: Color) {
+/// Shell, soot streaks, visor, headband and headset.
+private func drawBody(_ g: inout GraphicsContext, _ s: CGFloat, _ color: RobotColor, _ bandaged: Bool, _ headset: Bool,
+                      _ shell: Color) {
     g.fill(headShape(), with: .color(shell))
     if color == .burnt && s > 1 {   // soot streaks, only at large sizes
         var soot = Path()
@@ -264,6 +266,32 @@ private func drawBody(_ g: inout GraphicsContext, _ s: CGFloat, _ color: RobotCo
         ends.move(to: CGPoint(x: 52.5, y: 10.5)); ends.addQuadCurve(to: CGPoint(x: 59.5, y: 5.5), control: CGPoint(x: 57, y: 7))
         ends.move(to: CGPoint(x: 52.5, y: 12)); ends.addQuadCurve(to: CGPoint(x: 59, y: 17.5), control: CGPoint(x: 57, y: 14))
         g.stroke(ends, with: .color(Color(hex: 0xAFA9EC)), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
+    }
+    if headset && [.blue, .backgroundBlue, .dimGreen].contains(color) {   // something is playing: pearl headphones
+        drawHeadset(&g, dim: color == .dimGreen)
+    }
+}
+
+/// Headphones in the style of the AirPods Max, pearl white: an arc over the head and a cup on each side.
+/// Idle, they darken along with the dim shell.
+private func drawHeadset(_ g: inout GraphicsContext, dim: Bool) {
+    let k = dim ? 0.4 : 0   // how far towards black
+    func pearl(_ hex: UInt32) -> Color { mix(hex, 0x000000, k, alpha: 1) }
+    let sheen = Gradient(colors: [pearl(0xF6F5FA), pearl(0xE4E3EC), pearl(0xCBCCD8)])
+    var band = Path()
+    band.move(to: CGPoint(x: 5, y: 18))
+    band.addCurve(to: CGPoint(x: 55, y: 18), control1: CGPoint(x: 4, y: -3.5), control2: CGPoint(x: 56, y: -3.5))
+    g.stroke(band, with: .linearGradient(sheen, startPoint: CGPoint(x: 30, y: 1), endPoint: CGPoint(x: 30, y: 18)),
+             style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+    for x in [CGFloat(0.8), 51.2] {
+        let left = x < 30
+        g.fill(Path(roundedRect: CGRect(x: x, y: 16, width: 8, height: 18), cornerRadius: 3.6),
+               with: .linearGradient(sheen, startPoint: CGPoint(x: x, y: 16), endPoint: CGPoint(x: x + 8, y: 34)))
+        // the cushion against the head, and a glint on the outside
+        g.fill(Path(roundedRect: CGRect(x: left ? x + 6.2 : x, y: 17.5, width: 1.8, height: 15), cornerRadius: 0.9),
+               with: .color(pearl(0xB4B6C4)))
+        g.fill(Path(roundedRect: CGRect(x: left ? x + 1.8 : x + 3.4, y: 18.5, width: 1.4, height: 6), cornerRadius: 0.7),
+               with: .color(Color.white.opacity(dim ? 0.42 : 0.7)))
     }
 }
 

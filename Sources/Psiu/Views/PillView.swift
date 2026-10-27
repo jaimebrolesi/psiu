@@ -20,7 +20,7 @@ struct PillView: View {
                         let peeking = store.color == .backgroundBlue && !geo.isOpen
                         RobotView(color: store.color, tired: store.heavyContext, peeking: peeking,
                                   bandaged: store.bandaged, revivingUntil: store.revivingUntil, relief: store.relief,
-                                  paused: store.displayAsleep, badge: store.greenDot)
+                                  paused: store.displayAsleep, badge: store.greenDot, headset: store.listening)
                             .aspectRatio(60.0 / 46.0, contentMode: .fit)
                             .frame(width: geo.isOpen ? 42 : 26, height: geo.isOpen ? 32 : 20)
                             .scaleEffect(geo.swollen ? hoverScale : 1)

@@ -5,7 +5,7 @@ import Testing
 
 /// The robot drawn now against frames saved from Psiu 1.6.2 (the revival's smoke and the relief from 1.6.6), so a
 /// refactor can't change how it looks. Each file name holds the look: color_tired_peeking_bandaged_revival_time.png,
-/// plus _relief-from-progress for the relief.
+/// plus _relief-from-progress for the relief and _headset with the headset on (both from 1.8.1, with the blue drop).
 @Suite("Robot frames")
 @MainActor
 struct RobotFramesTests {
@@ -23,7 +23,9 @@ struct RobotFramesTests {
 
     /// Draws one look the way the golden frames were made: the 60 x 46 grid in an 80 x 66 canvas, at 2x.
     func render(_ name: String) throws -> CGImage {
-        let f = name.split(separator: "_").map(String.init)
+        var f = name.split(separator: "_").map(String.init)
+        let headset = f.last == "headset"
+        if headset { f.removeLast() }
         try #require(f.count == 6 || f.count == 7, "unexpected file name \(name)")
         let color = try #require(Self.colors[f[0]])
         let tired = f[1] == "true", peeking = f[2] == "true", bandaged = f[3] == "true"
@@ -36,8 +38,8 @@ struct RobotFramesTests {
         }
         let view = Canvas { g, _ in
             g.translateBy(x: 10, y: 10)
-            drawRobot(&g, CGSize(width: 60, height: 46), color, tired, t, peeking: peeking, bandaged: bandaged, revival: revival,
-                      relief: relief)
+            drawRobot(&g, CGSize(width: 60, height: 46), color, tired, t, peeking: peeking, bandaged: bandaged, headset: headset,
+                      revival: revival, relief: relief)
         }
         .frame(width: 80, height: 66)
         let renderer = ImageRenderer(content: view)
@@ -59,7 +61,7 @@ struct RobotFramesTests {
     }
 
     @Test func thereAreGoldenFrames() {
-        #expect(Self.goldenFiles.count == 68)
+        #expect(Self.goldenFiles.count == 73)
     }
 
     /// Saves the frames again into $PSIU_GOLDEN (only when it is set): after a change Jaime approved.
@@ -69,10 +71,19 @@ struct RobotFramesTests {
         for from in ["yellow", "red"] {
             for p in ["0.1", "0.4", "0.6", "0.9"] { names.append("blue_false_false_false_nil_0.37_relief-\(from)-\(p)") }
         }
+        names += ["blue_false_false_false_nil_0.37", "blue_true_false_false_nil_1.1", "backgroundBlue_false_false_false_nil_0.37",
+                  "backgroundBlue_false_true_false_nil_2.9", "dimGreen_false_false_false_nil_0.37"].map { $0 + "_headset" }
         for name in Set(names) {
             let rep = NSBitmapImageRep(cgImage: try render(name))
             try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
         }
+    }
+
+    /// Happy, waiting, in panic, burnt or asleep, Psiu takes the headset off.
+    @Test(arguments: ["green", "yellow", "red", "burnt", "gray"])
+    func noHeadsetOutsideWorkAndIdle(_ color: String) throws {
+        let name = "\(color)_false_false_false_nil_0.37"
+        expectSame(try render(name), try render(name + "_headset"), name)
     }
 
     @Test(arguments: goldenFiles)
@@ -81,8 +92,12 @@ struct RobotFramesTests {
         let saved = try #require(NSBitmapImageRep(data: Data(contentsOf: file))?.cgImage)
         let drawn = try render(name)
         try #require(drawn.width == saved.width && drawn.height == saved.height)
-        let a = pixels(saved), b = pixels(drawn)
-        // Anti-aliasing may differ by a hair between macOS versions; a changed shape or color moves far more.
+        expectSame(saved, drawn, name)
+    }
+
+    /// Anti-aliasing may differ by a hair between renders and macOS versions; a changed shape or color moves far more.
+    func expectSame(_ x: CGImage, _ y: CGImage, _ name: String) {
+        let a = pixels(x), b = pixels(y)
         var off = 0, total = 0
         for i in a.indices {
             let d = abs(Int(a[i]) - Int(b[i]))
