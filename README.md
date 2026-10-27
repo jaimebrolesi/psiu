@@ -60,16 +60,18 @@ The number next to the robot is how much of your 5-hour plan window you have use
 
 ## The panel
 
-Click the notch and it stretches down into a panel. Click it again, or anywhere else, to close it.
+Hover over the notch and it swells a little, with Psiu. Click it and it stretches into a wide panel, with your limits, your sessions and your day side by side. Click it again, or anywhere else, to close it.
 
 <p align="center">
-  <img src="docs/panel-en.svg" width="760" alt="The notch stretching down into the panel">
+  <img src="docs/panel-en.svg" width="760" alt="The notch stretching into the wide panel">
 </p>
 
 - **5-hour window and week**, with when they reset. Based on the last hour, Psiu tells you if your current pace runs out the 5-hour window before it resets.
-- **Every session** (the five newest, plus a count of the others), with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward). Clicking a session that waits for you also tells Psiu you went to answer it: Claude Code doesn't say when you approve a permission, only when the tool ends, so the click turns it blue, with a sigh of relief, until the next event.
+- **Every session**, those waiting for you on top and then the newest, with its state, a one-line summary of what it finished or what it is asking for, and its context usage (purple above 80%, even for a session that is idle). Click a session to bring its terminal window to the front (Terminal and iTerm jump to the exact tab; VS Code, Cursor and others bring the app forward). Clicking a session that waits for you also tells Psiu you went to answer it: Claude Code doesn't say when you approve a permission, only when the tool ends, so the click turns it blue, with a sigh of relief, until the next event.
 - **Compacted sessions** get a "compacted Nx" tag, and once they finish, a tip to clear the session (`/clear`) before your next prompt.
 - **Today**: how long agents worked, how long they waited for you, and your average response time, plus the last 7 days, and how many Psius burnt out waiting for you. A small, honest mirror.
+
+Past four sessions, the list scrolls, and a fade at its bottom shows there is more.
 
 The installed version shows at the bottom of the panel; click it to open that version's release page.
 

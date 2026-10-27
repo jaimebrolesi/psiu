@@ -60,16 +60,18 @@ O número ao lado do robô é quanto você já usou da janela de 5 horas do seu 
 
 ## O painel
 
-Clique no notch e ele se estica para baixo, virando um painel. Clique de novo, ou em qualquer outro lugar, para recolher.
+Passe o mouse no notch e ele cresce um pouco, junto com o Psiu. Clique e ele se estica num painel largo, com seus limites, suas sessões e o seu dia lado a lado. Clique de novo, ou em qualquer outro lugar, para recolher.
 
 <p align="center">
-  <img src="docs/panel.svg" width="760" alt="O notch se esticando para baixo e virando o painel">
+  <img src="docs/panel.svg" width="760" alt="O notch se esticando e virando o painel largo">
 </p>
 
 - **Janela de 5 horas e semana,** com o horário de renovação. Pelo ritmo da última hora, o Psiu avisa se o consumo atual estoura a janela de 5 horas antes de ela renovar.
-- **Cada sessão** (as cinco mais recentes, mais a contagem das outras), com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app. Clicar numa sessão que espera por você também avisa o Psiu que você foi responder: o Claude Code não diz quando você aprova uma permissão, só quando a ferramenta termina, então o clique deixa o Psiu azul, com um suspiro de alívio, até o próximo evento.
+- **Cada sessão**, as que esperam você no topo e depois as mais recentes, com o estado, uma linha com o resumo do que terminou ou do que está pedindo, e o uso de contexto (roxo acima de 80%, mesmo numa sessão parada). Clique na sessão para trazer a janela do terminal dela para a frente: Terminal e iTerm vão direto na aba; VS Code, Cursor e outros trazem o app. Clicar numa sessão que espera por você também avisa o Psiu que você foi responder: o Claude Code não diz quando você aprova uma permissão, só quando a ferramenta termina, então o clique deixa o Psiu azul, com um suspiro de alívio, até o próximo evento.
 - **Sessões compactadas** ganham a etiqueta "compactada Nx" e, quando terminam, a sugestão de limpar a sessão (`/clear`) antes do próximo pedido.
 - **Hoje:** quanto tempo os agentes trabalharam, quanto tempo esperaram por você e sua resposta média, mais o acumulado de 7 dias e quantos Psius queimaram esperando você. Um espelho pequeno e honesto.
+
+Com mais de quatro sessões, a lista rola, e um degradê no pé dela mostra que tem mais.
 
 A versão instalada aparece no rodapé do painel; clique nela para abrir a página daquela versão.
 
