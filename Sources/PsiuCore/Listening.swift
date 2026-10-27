@@ -23,16 +23,22 @@ public struct Listening: Sendable {
 
 /// Whether another app is sending sound to an output (music, a call, a video, an audio message), from Core Audio's
 /// process objects (macOS 14.2). Asks no permission and never hears the sound: Core Audio calls back when an app
-/// starts or stops playing, and nothing runs in between.
+/// starts or stops playing, and nothing runs in between, except a check every 15 s while the headset is on.
 public final class AudioOutput: @unchecked Sendable {
     /// Processes that only play alerts.
     static let ignored: Set<String> = ["systemsoundserverd"]
+    /// Core Audio announces kAudioProcessPropertyIsRunning (input or output) but, on macOS 26, never
+    /// kAudioProcessPropertyIsRunningOutput: both are watched, and the output one is read.
+    static let announced = [kAudioProcessPropertyIsRunning, kAudioProcessPropertyIsRunningOutput]
+    /// While something plays, checked again this often, in case an app stops its output but keeps its microphone.
+    static let recheck = 15.0
 
     private let queue = DispatchQueue(label: "io.github.jaimebrolesi.psiu.audio")
     private let state = OSAllocatedUnfairLock(initialState: false)
     // Touched only on `queue`.
     private var watched: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
     private var counts: [AudioObjectID: Bool] = [:]   // whether a process's sound counts (not Psiu, not an alert)
+    private var recheckPending = false
 
     public init() {}
 
@@ -55,15 +61,20 @@ public final class AudioOutput: @unchecked Sendable {
     private func refresh() {
         let processes = Set(Self.processes())
         for (id, block) in watched where !processes.contains(id) {
-            var running = Self.address(kAudioProcessPropertyIsRunningOutput)
-            AudioObjectRemovePropertyListenerBlock(id, &running, queue, block)
+            for selector in Self.announced {
+                var running = Self.address(selector)
+                AudioObjectRemovePropertyListenerBlock(id, &running, queue, block)
+            }
             watched[id] = nil
             counts[id] = nil
         }
         for id in processes where watched[id] == nil {
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.check() }
-            var running = Self.address(kAudioProcessPropertyIsRunningOutput)
-            if AudioObjectAddPropertyListenerBlock(id, &running, queue, block) == noErr { watched[id] = block }
+            for selector in Self.announced {
+                var running = Self.address(selector)
+                AudioObjectAddPropertyListenerBlock(id, &running, queue, block)
+            }
+            watched[id] = block
             counts[id] = Self.pid(id) != getpid() && !Self.ignored.contains(Self.bundleID(id) ?? "")
         }
         check()
@@ -73,6 +84,13 @@ public final class AudioOutput: @unchecked Sendable {
     private func check() {
         let now = watched.keys.contains { counts[$0] == true && Self.runsOutput($0) }
         state.withLock { $0 = now }
+        if now && !recheckPending {
+            recheckPending = true
+            queue.asyncAfter(deadline: .now() + Self.recheck) { [weak self] in
+                self?.recheckPending = false
+                self?.check()
+            }
+        }
     }
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
