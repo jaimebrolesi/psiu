@@ -6,40 +6,93 @@ struct DetailView: View {
     let store: Store
     var onOpen: (Session) -> Void = { _ in }
 
-    /// The panel lists this many sessions, the newest; the rest are counted below them.
-    static let maxSessions = 5
-
-    static func moreSessionsText(_ total: Int) -> String? {
-        let n = total - maxSessions
-        guard n > 0 else { return nil }
-        return n == 1 ? tr("+1 sessão", "+1 more session") : tr("+\(n) sessões", "+\(n) more sessions")
+    /// The sessions in the order the panel lists them: those waiting for you first, the longest wait on top,
+    /// so none hides at the bottom of the list; then the others, newest first.
+    static func ordered(_ sessions: [Session]) -> [Session] {
+        let waiting = sessions.filter { $0.state == .awaiting }.sorted { $0.since < $1.since }
+        return waiting + sessions.filter { $0.state != .awaiting }
     }
 
+    /// The sessions card is as tall as this many sessions; the others scroll under a fade.
+    static let visibleSessions = 4
+    static let fade: CGFloat = 22
+
+    /// Limits, sessions and today, each in its card; the cards share the tallest one's height.
     var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            card { limits }.frame(width: 180)
+            card { scrollingSessions }
+            card {
+                VStack(alignment: .leading, spacing: 8) {
+                    ScoreboardView(today: store.today, weekWaiting: store.weekWaiting)
+                    Spacer(minLength: 0)
+                    VersionView()
+                }
+            }
+            .frame(width: 170)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 12)
+    }
+
+    func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+    }
+
+    var limits: some View {
         VStack(alignment: .leading, spacing: 12) {
             LimitView(title: tr("Sessão de 5 horas", "5-hour session"), usageWindow: store.fiveHour, format: "HH:mm",
                        overflow: store.forecast, headroom: store.forecastHeadroom)
             LimitView(title: tr("Semana", "Week"), usageWindow: store.week, format: "EEE HH:mm")
-            Divider()
+        }
+    }
+
+    /// Every session, in a list as tall as the first four: the rest scroll, and a fade at the bottom says there's more.
+    @ViewBuilder var scrollingSessions: some View {
+        let all = Self.ordered(store.sessions)
+        if all.count <= Self.visibleSessions {
+            sessions
+        } else {
+            CappedHeight(extra: Self.fade) {
+                ScrollView {
+                    rows(all)
+                        .padding(.bottom, Self.fade)   // at the end, the last one clears the fade
+                }
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: Self.fade)
+                    }
+                }
+                // Only measured: the first four show whole, and the fifth starts under the fade.
+                rows(Array(all.prefix(Self.visibleSessions))).hidden()
+            }
+        }
+    }
+
+    func rows(_ list: [Session]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(list) { s in
+                SessionView(s: s)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onOpen(s) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var sessions: some View {
+        VStack(alignment: .leading, spacing: 12) {
             if store.sessions.isEmpty {
                 Text(tr("Nenhuma sessão do Claude Code aberta.", "No Claude Code sessions open."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
-                ForEach(store.sessions.prefix(Self.maxSessions)) { s in
-                    SessionView(s: s)
-                        .contentShape(Rectangle())
-                        .onTapGesture { onOpen(s) }
-                }
-                if let more = Self.moreSessionsText(store.sessions.count) {
-                    Text(more).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
+                rows(Self.ordered(store.sessions))
             }
-            Divider()
-            ScoreboardView(today: store.today, weekWaiting: store.weekWaiting)
-            VersionView()
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -74,20 +127,31 @@ struct LimitView: View {
                     .clipShape(Capsule())
                 }
                 .frame(height: 5)
-                HStack {
-                    Text(resetText(j)).font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                    if let e = overflow {
-                        Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + shortTime(e))
-                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.warning)
-                    } else if headroom {
-                        Text(tr("No ritmo atual, dá folga", "At this pace, plenty left")).font(.system(size: 10)).foregroundStyle(.secondary)
+                // In a narrow card the forecast goes under the reset time.
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Text(resetText(j)).font(.system(size: 10)).foregroundStyle(.secondary)
+                        Spacer()
+                        forecast
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(resetText(j)).font(.system(size: 10)).foregroundStyle(.secondary)
+                        forecast
                     }
                 }
             } else {
                 Text(tr("Aparece depois da primeira resposta numa sessão.", "Shows up after the first reply in a session."))
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder var forecast: some View {
+        if let e = overflow {
+            Text(tr("No ritmo atual, acaba às ", "At this pace, runs out at ") + shortTime(e))
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.warning)
+        } else if headroom {
+            Text(tr("No ritmo atual, dá folga", "At this pace, plenty left")).font(.system(size: 10)).foregroundStyle(.secondary)
         }
     }
 
@@ -194,14 +258,14 @@ struct ScoreboardView: View {
     let today: Scoreboard
     let weekWaiting: Double
 
+    /// In its narrow card: the week under the title and the tiles one above the other.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(tr("Hoje", "Today")).font(.system(size: 12, weight: .medium))
-                Spacer()
                 Text(tr("7 dias: esperou você ", "7 days: waited for you ") + formatDuration(weekWaiting)).font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            HStack(spacing: 6) {
+            VStack(spacing: 6) {
                 metricTile(tr("Agente trabalhando", "Agent working"), formatDuration(today.working), nil)
                 metricTile(tr("Esperando você", "Waiting for you"), formatDuration(today.waiting), Palette.warning)
                 metricTile(tr("Sua resposta média", "Your avg. reply"),
@@ -223,5 +287,21 @@ struct ScoreboardView: View {
         .padding(.horizontal, 8).padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.06)))
+    }
+}
+
+/// As tall as its first view, but no taller than its second one (which is only measured) plus `extra`.
+struct CappedHeight: Layout {
+    var extra: CGFloat = 0
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let free = ProposedViewSize(width: proposal.width, height: nil)
+        let content = subviews[0].sizeThatFits(free), cap = subviews[1].sizeThatFits(free)
+        return CGSize(width: proposal.width ?? content.width, height: min(content.height, cap.height + extra))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+        subviews[1].place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }

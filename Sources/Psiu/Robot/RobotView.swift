@@ -535,22 +535,31 @@ struct Flipbook {
 }
 
 /// The panic edge around the notch, pulsing on Core Animation.
-struct PanicBorder: NSViewRepresentable {
-    let radius: CGFloat
+struct PanicBorder: NSViewRepresentable, @preconcurrency Animatable {
+    var flare: CGFloat
+    var radius: CGFloat
     var paused = false
 
+    /// The corners follow the notch's while it opens and closes.
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(flare, radius) }
+        set { flare = newValue.first; radius = newValue.second }
+    }
+
     func makeNSView(context: Context) -> PanicBorderView { PanicBorderView() }
-    func updateNSView(_ view: PanicBorderView, context: Context) { view.update(radius: radius, paused: paused) }
+    func updateNSView(_ view: PanicBorderView, context: Context) { view.update(flare: flare, radius: radius, paused: paused) }
 }
 
 final class PanicBorderView: NSView {
     private let shape = CAShapeLayer()
+    private var flare: CGFloat = 0
     private var radius: CGFloat = 0
     private var paused = false
 
     init() {
         super.init(frame: .zero)
         let root = CALayer()
+        root.isGeometryFlipped = true   // y down, like NotchShape
         layer = root
         wantsLayer = true
         shape.fillColor = nil
@@ -562,8 +571,9 @@ final class PanicBorderView: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func update(radius: CGFloat, paused: Bool) {
+    func update(flare: CGFloat, radius: CGFloat, paused: Bool) {
         let changed = paused != self.paused
+        self.flare = flare
         self.radius = radius
         self.paused = paused
         needsLayout = true
@@ -574,15 +584,8 @@ final class PanicBorderView: NSView {
         super.layout()
         shape.frame = bounds
         // Like strokeBorder: the line sits inside the shape, so the outline is inset by half its width.
-        let w = shape.lineWidth / 2, r = max(0, radius - w)
-        let rect = bounds.insetBy(dx: w, dy: w)
-        let path = CGMutablePath()
-        // Core Animation's y grows upwards: the top edge is maxY and the rounded corners are at minY.
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r)
-        path.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r)
-        path.closeSubpath()
+        let w = shape.lineWidth / 2
+        let path = NotchShape.outline(in: bounds.insetBy(dx: w, dy: w), flare: flare, radius: max(0, radius - w))
         shape.path = path
     }
 

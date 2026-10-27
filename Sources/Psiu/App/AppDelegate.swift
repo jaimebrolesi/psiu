@@ -11,7 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var refreshLoop: Task<Void, Never>?
     var clickMonitor: Any?
     var hiddenScreens = Set<String>()
-    let springAnimation = Animation.spring(response: 0.45, dampingFraction: 0.86)
+    /// Opening springs with a small bounce; closing settles without one; hovering answers right away.
+    let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8)
+    let closeAnimation = Animation.spring(response: 0.38, dampingFraction: 0.92)
+    let hoverAnimation = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8)
 
     /// Why nobody can see the robot right now (screens asleep, screen locked, another user active).
     private var hiddenReasons = Set<String>()
@@ -236,16 +239,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBarHeight = f.maxY - screen.visibleFrame.maxY
         entry.geo.screenFrame = f
         entry.geo.h = notch > 0 ? screen.safeAreaInsets.top : (menuBarHeight >= 20 ? menuBarHeight : 24)
-        entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * 30   // ears that stop short of the menu bar icons
+        entry.geo.w = (notch > 0 ? notch : defaultNotchWidth) + 2 * PanelGeometry.ear   // ears that barely reach the menu bar icons
         applyFrame(entry)
     }
 
     /// Closed, the window is the size of the notch; open, the size of the panel. Always at the top, centered.
     func applyFrame(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry)) {
         let g = entry.geo
-        let w = g.isOpen ? g.W : g.w
-        let h = g.isOpen ? g.H : g.h
-        entry.panel.setFrame(NSRect(x: g.screenFrame.midX - w / 2, y: g.screenFrame.maxY - h, width: w, height: h), display: true)
+        setWindow(entry, g.windowSize(open: g.isOpen, swollen: g.swollen))
+    }
+
+    func setWindow(_ entry: (panel: NotchPanel, host: Host, geo: PanelGeometry), _ size: CGSize) {
+        let f = entry.geo.screenFrame
+        entry.panel.setFrame(NSRect(x: f.midX - size.width / 2, y: f.maxY - size.height, width: size.width, height: size.height), display: true)
+        // Lay the content out at the new size now, so the animation that follows doesn't drag it across the window.
+        entry.host.layoutSubtreeIfNeeded()
+    }
+
+    /// The mouse over the closed notch swells it a little; leaving, it shrinks back and then frees the menu bar.
+    func hover(_ id: CGDirectDisplayID, _ inside: Bool) {
+        guard let entry = panels[id], entry.geo.hovering != inside else { return }
+        if inside && !entry.geo.isOpen { setWindow(entry, entry.geo.windowSize(open: false, swollen: true)) }
+        withAnimation(hoverAnimation) { entry.geo.hovering = inside }
+        guard !inside else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard let self, let entry = self.panels[id], !entry.geo.hovering, !entry.geo.isOpen else { return }
+            self.applyFrame(entry)
+        }
     }
 
     func toggleDetail(_ id: CGDirectDisplayID) {
@@ -253,12 +274,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if entry.geo.isOpen { closePanel(id); return }
         closeAll()
         store.acknowledge()
-        entry.geo.W = max(entry.geo.w, 340)
+        entry.geo.W = max(entry.geo.w, 680)   // wide: limits, sessions and today side by side
         entry.geo.H = openHeight(entry.geo)
         // First the window grows (transparent), then the notch stretches inside it.
-        let g = entry.geo
-        entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - g.H, width: g.W, height: g.H), display: true)
-        withAnimation(springAnimation) { entry.geo.isOpen = true }
+        setWindow(entry, entry.geo.windowSize(open: true, swollen: false))
+        withAnimation(openAnimation) { entry.geo.isOpen = true }
     }
 
     /// Height of the open panel: the top strip plus the detail, measured at the panel's width.
@@ -275,12 +295,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard abs(target - entry.geo.H) >= 1 else { continue }
             if target > entry.geo.H {
                 // Growing: first the window (transparent), then the notch stretches inside it.
-                let g = entry.geo
-                entry.panel.setFrame(NSRect(x: g.screenFrame.midX - g.W / 2, y: g.screenFrame.maxY - target, width: g.W, height: target), display: true)
-                withAnimation(springAnimation) { entry.geo.H = target }
+                let size = entry.geo.windowSize(open: true, swollen: false)
+                setWindow(entry, CGSize(width: size.width, height: size.height - entry.geo.H + target))
+                withAnimation(openAnimation) { entry.geo.H = target }
             } else {
                 // Shrinking: the notch first, then the window.
-                withAnimation(springAnimation) { entry.geo.H = target }
+                withAnimation(closeAnimation) { entry.geo.H = target }
                 Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(500))
                     guard let self, let entry = self.panels[id], entry.geo.isOpen else { return }
@@ -292,10 +312,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func closePanel(_ id: CGDirectDisplayID) {
         guard let entry = panels[id], entry.geo.isOpen else { return }
-        withAnimation(springAnimation) { entry.geo.isOpen = false }
+        withAnimation(closeAnimation) { entry.geo.isOpen = false }
         // After the notch collapses, the window goes back to the notch size and frees the menu bar.
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .milliseconds(600))
             guard let self, let entry = self.panels[id], !entry.geo.isOpen else { return }
             self.applyFrame(entry)
         }
