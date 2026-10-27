@@ -559,7 +559,6 @@ final class PanicBorderView: NSView {
     init() {
         super.init(frame: .zero)
         let root = CALayer()
-        root.isGeometryFlipped = true   // y down, like NotchShape
         layer = root
         wantsLayer = true
         shape.fillColor = nil
@@ -585,8 +584,10 @@ final class PanicBorderView: NSView {
         shape.frame = bounds
         // Like strokeBorder: the line sits inside the shape, so the outline is inset by half its width.
         let w = shape.lineWidth / 2
-        let path = NotchShape.outline(in: bounds.insetBy(dx: w, dy: w), flare: flare, radius: max(0, radius - w))
-        shape.path = path
+        // NotchShape is drawn y down; Core Animation's y grows upwards, so it's turned over to put the flares on top.
+        var flip = CGAffineTransform(translationX: 0, y: bounds.height).scaledBy(x: 1, y: -1)
+        let outline = NotchShape.outline(in: bounds.insetBy(dx: w, dy: w), flare: flare, radius: max(0, radius - w))
+        shape.path = outline.copy(using: &flip)
     }
 
     /// Opacity between 25% and 100% every 1.2 s, in step with the clock.
