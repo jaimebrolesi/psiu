@@ -107,6 +107,22 @@ struct HookTests {
         #expect(cleared?.state == "idle")
     }
 
+    @Test func compactionKeepsTheStateAndBackgroundTasks() throws {
+        let r = try #require(run([
+            ["hook_event_name": "UserPromptSubmit", "prompt": "x"],
+            ["hook_event_name": "Stop", "background_tasks": [["type": "shell"], ["type": "shell"]]],
+            ["hook_event_name": "PreCompact", "trigger": "auto"],
+            ["hook_event_name": "SessionStart", "source": "compact"],
+        ]))
+        #expect(r.state == "background")
+        #expect(r.since == 1001)
+        #expect(r.bg == "2 shell")
+        #expect(r.backgroundWork == true)
+        #expect(r.compactions == 1)
+        let fresh = try #require(run([["hook_event_name": "SessionStart", "source": "compact"]]))
+        #expect(fresh.state == "idle")
+    }
+
     @Test func sessionEndRemovesAndBadInputIsIgnored() {
         #expect(applyHookEvent(["session_id": "s1", "hook_event_name": "SessionEnd"], to: nil, now: 0, terminal: noTerminal) == .remove(id: "s1"))
         #expect(applyHookEvent(["hook_event_name": "Stop"], to: nil, now: 0, terminal: noTerminal) == .ignore)

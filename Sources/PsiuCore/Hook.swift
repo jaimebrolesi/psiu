@@ -99,6 +99,9 @@ public func applyHookEvent(_ input: [String: Any], to existing: SessionRecord?, 
     var newState: String?
     switch event {
     case "SessionStart":
+        // A compaction (even one Claude Code does on its own while idle) goes on with the same session: its
+        // state, dialogs and background tasks stay as they were.
+        if input["source"] as? String == "compact", rec.state != nil { break }
         newState = "idle"
         waiting = []
         rec.backgroundWork = nil
