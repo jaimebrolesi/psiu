@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.closeAll() }
         }
-        store.listenToAudio()
+        store.watchHeadphones()
         store.reload()
         // Every half second: read what the hooks wrote, then adjust the notch.
         refreshLoop = Task { [weak self] in

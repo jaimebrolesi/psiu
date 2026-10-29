@@ -267,7 +267,7 @@ private func drawBody(_ g: inout GraphicsContext, _ s: CGFloat, _ color: RobotCo
         ends.move(to: CGPoint(x: 52.5, y: 12)); ends.addQuadCurve(to: CGPoint(x: 59, y: 17.5), control: CGPoint(x: 57, y: 14))
         g.stroke(ends, with: .color(Color(hex: 0xAFA9EC)), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
     }
-    if headset && [.blue, .backgroundBlue, .dimGreen].contains(color) {   // something is playing: pearl headphones
+    if headset && [.blue, .backgroundBlue, .dimGreen].contains(color) {   // the Mac is on headphones: pearl headphones
         drawHeadset(&g, dim: color == .dimGreen)
     }
 }

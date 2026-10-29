@@ -22,7 +22,7 @@ struct RobotView: NSViewRepresentable {
     var paused = false
     /// A session finished while Psiu shows another color: a green badge on the head's corner.
     var badge = false
-    /// Something is playing sound: working or idle, Psiu wears headphones.
+    /// The Mac's sound goes to headphones: working or idle, Psiu wears them too.
     var headset = false
 
     func makeNSView(context: Context) -> RobotLayerView { RobotLayerView() }

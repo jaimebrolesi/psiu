@@ -17,7 +17,7 @@ final class Store {
     private(set) var revivingUntil: Date?       // a burnt Psiu shaking off the soot
     private(set) var relief: ReliefCue?         // a Psiu you answered, breathing out of yellow or red
     var displayAsleep = false                   // nobody can see the robot: screens asleep, locked or another user
-    private(set) var listening = false          // another app is playing sound: Psiu wears the headset
+    private(set) var listening = false          // the Mac's sound goes to headphones: Psiu wears the headset
     /// Episodes already seen (opening the panel): mirrored from the sound policy, as the robot's color depends on it.
     private(set) var seen = Set<String>()
 
@@ -27,8 +27,7 @@ final class Store {
     @ObservationIgnored private var forecaster = UsageForecaster()
     @ObservationIgnored private var policy = SoundPolicy()
     @ObservationIgnored private var answered = AnsweredWaits()
-    @ObservationIgnored private let audio = AudioOutput()
-    @ObservationIgnored private var listen = Listening()
+    @ObservationIgnored private let headphones = Headphones()
 
     init(paths: PsiuPaths = .current) {
         self.paths = paths
@@ -91,13 +90,12 @@ final class Store {
 
         for name in policy.sounds(for: sessions, now: Date()) where !muted { NSSound(named: NSSound.Name(name))?.play() }
         if policy.seen != seen { seen = policy.seen }
-        let headset = listen.update(playing: audio.playing, now: now)
-        if headset != listening { listening = headset }
+        if headphones.on != listening { listening = headphones.on }
         repository.endPass()
     }
 
-    /// Starts following which apps play sound.
-    func listenToAudio() { audio.start() }
+    /// Starts following whether the sound goes to headphones.
+    func watchHeadphones() { headphones.start() }
 
     /// A burnt Psiu shakes off the soot (RobotRevival.duration), then the robot goes back to normal.
     private func revive() {

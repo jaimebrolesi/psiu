@@ -1,3 +1,4 @@
+import CoreAudio
 import Foundation
 import Testing
 @testable import PsiuCore
@@ -247,32 +248,29 @@ struct SoundPolicyTests {
     }
 }
 
-@Suite("Listening")
-struct ListeningTests {
-    /// Feeds what plays every half second, as Store.reload does, from t = 0.
-    func headset(_ samples: [Bool], _ l: inout Listening) -> [Bool] {
-        samples.enumerated().map { l.update(playing: $1, now: Double($0) * 0.5) }
+@Suite("Headphones")
+struct HeadphonesTests {
+    let builtIn = kAudioDeviceTransportTypeBuiltIn, bluetooth = kAudioDeviceTransportTypeBluetooth
+
+    @Test func theMacBookSpeakersAreNot() {
+        #expect(!OutputRoute(transport: builtIn, dataSource: fourCC("ispk"), terminals: [0x0301]).headphones)
     }
 
-    @Test func onAfterThreeSecondsOfSound() {
-        var l = Listening()
-        let on = headset(Array(repeating: true, count: 8), &l)
-        #expect(on == [false, false, false, false, false, false, true, true])
+    @Test func headphonesInTheJack() {
+        #expect(OutputRoute(transport: builtIn, dataSource: fourCC("hdpn"), terminals: [0x0302]).headphones)
+        #expect(OutputRoute(transport: builtIn, dataSource: fourCC("hdpn")).headphones)
     }
 
-    @Test func anAlertNeverPutsItOn() {
-        var l = Listening()
-        // two 2-second alerts with a pause between them
-        let on = headset([true, true, true, true, false, true, true, true, true, false, false, false], &l)
-        #expect(!on.contains(true))
+    @Test func bluetoothUnlessItIsASpeaker() {
+        #expect(OutputRoute(transport: bluetooth).headphones)
+        #expect(OutputRoute(transport: kAudioDeviceTransportTypeBluetoothLE, terminals: [0x0302]).headphones)
+        #expect(!OutputRoute(transport: bluetooth, terminals: [kAudioStreamTerminalTypeSpeaker]).headphones)
     }
 
-    @Test func aShortPauseKeepsItOn() {
-        var l = Listening()
-        // 3 s of a song, 2.5 s between songs, the next song, then 3.5 s of silence
-        let samples = Array(repeating: true, count: 7) + Array(repeating: false, count: 5) + [true]
-            + Array(repeating: false, count: 7)
-        let on = headset(samples, &l)
-        #expect(on == Array(repeating: false, count: 6) + Array(repeating: true, count: 13) + [false])
+    @Test func aUSBHeadsetButNotAMonitor() {
+        #expect(OutputRoute(transport: kAudioDeviceTransportTypeUSB, terminals: [0x0402]).headphones)
+        #expect(!OutputRoute(transport: kAudioDeviceTransportTypeUSB, terminals: [0x0301]).headphones)
+        #expect(!OutputRoute(transport: kAudioDeviceTransportTypeDisplayPort, terminals: [0]).headphones)
+        #expect(!OutputRoute(transport: kAudioDeviceTransportTypeVirtual).headphones)
     }
 }
