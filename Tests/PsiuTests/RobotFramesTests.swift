@@ -5,7 +5,8 @@ import Testing
 
 /// The robot drawn now against frames saved from Psiu 1.6.2 (the revival's smoke and the relief from 1.6.6), so a
 /// refactor can't change how it looks. Each file name holds the look: color_tired_peeking_bandaged_revival_time.png,
-/// plus _relief-from-progress for the relief and _headset with the headset on (both from 1.8.1, with the blue drop).
+/// plus _relief-from-progress for the relief and _headset with the headset on (both from 1.8.1, with the blue drop; the
+/// headset on every awake color from 1.8.5).
 @Suite("Robot frames")
 @MainActor
 struct RobotFramesTests {
@@ -61,7 +62,7 @@ struct RobotFramesTests {
     }
 
     @Test func thereAreGoldenFrames() {
-        #expect(Self.goldenFiles.count == 73)
+        #expect(Self.goldenFiles.count == 78)
     }
 
     /// Saves the frames again into $PSIU_GOLDEN (only when it is set): after a change Jaime approved.
@@ -72,17 +73,18 @@ struct RobotFramesTests {
             for p in ["0.1", "0.4", "0.6", "0.9"] { names.append("blue_false_false_false_nil_0.37_relief-\(from)-\(p)") }
         }
         names += ["blue_false_false_false_nil_0.37", "blue_true_false_false_nil_1.1", "backgroundBlue_false_false_false_nil_0.37",
-                  "backgroundBlue_false_true_false_nil_2.9", "dimGreen_false_false_false_nil_0.37"].map { $0 + "_headset" }
+                  "backgroundBlue_false_true_false_nil_2.9", "dimGreen_false_false_false_nil_0.37",
+                  "green_false_false_false_nil_0.37", "green_false_false_true_nil_0.37", "yellow_false_false_false_nil_0.37",
+                  "red_false_false_false_nil_0.37", "burnt_false_false_false_nil_0.37"].map { $0 + "_headset" }
         for name in Set(names) {
             let rep = NSBitmapImageRep(cgImage: try render(name))
             try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dir).appendingPathComponent(name + ".png"))
         }
     }
 
-    /// Happy, waiting, in panic, burnt or asleep, Psiu takes the headset off.
-    @Test(arguments: ["green", "yellow", "red", "burnt", "gray"])
-    func noHeadsetOutsideWorkAndIdle(_ color: String) throws {
-        let name = "\(color)_false_false_false_nil_0.37"
+    /// Asleep, Psiu takes the headset off.
+    @Test func noHeadsetAsleep() throws {
+        let name = "gray_false_false_false_nil_0.37"
         expectSame(try render(name), try render(name + "_headset"), name)
     }
 

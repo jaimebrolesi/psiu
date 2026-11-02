@@ -22,7 +22,7 @@ struct RobotView: NSViewRepresentable {
     var paused = false
     /// A session finished while Psiu shows another color: a green badge on the head's corner.
     var badge = false
-    /// The Mac's sound goes to headphones: working or idle, Psiu wears them too.
+    /// The Mac's sound goes to headphones: awake, Psiu wears them too.
     var headset = false
 
     func makeNSView(context: Context) -> RobotLayerView { RobotLayerView() }
@@ -404,7 +404,6 @@ final class RobotLayerView: NSView {
         old.color = relief.from
         old.tired = false
         old.bandaged = false
-        old.headset = false
         let oldShell = Flipbook(part: .body, look: old, period: nil, size: built.size, scale: built.scale, revival: nil)
         let shut = Flipbook(part: .relief, look: look, period: duration, size: built.size, scale: built.scale, revival: nil,
                             reliefFrom: relief.from)
