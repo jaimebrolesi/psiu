@@ -65,4 +65,9 @@ public struct SoundPolicy: Sendable {
     public mutating func acknowledge(_ sessions: [Session]) {
         for s in sessions where s.state == .done || s.state == .awaiting { seen.insert(s.key) }
     }
+
+    /// Episodes seen some other way (going back to their terminal, see TerminalVisits).
+    public mutating func acknowledge(keys: Set<String>) {
+        seen.formUnion(keys)
+    }
 }

@@ -48,6 +48,8 @@ Você dá uma tarefa longa ao Claude Code, vai para o navegador ou para uma reun
 
 Com várias sessões abertas, o robô mostra a mais urgente: amarelo ganha do azul, que ganha do verde.
 
+Você já viu uma sessão que terminou quando abre o painel ou traz a aba do terminal dela para frente.
+
 O número ao lado do robô é quanto você já usou da janela de 5 horas do seu plano.
 
 ## Um pontinho

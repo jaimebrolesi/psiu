@@ -246,6 +246,91 @@ struct SoundPolicyTests {
         #expect(p.sounds(for: s, now: now.addingTimeInterval(61)) == [Sounds.panic])
         #expect(p.sounds(for: s, now: now.addingTimeInterval(1200)).isEmpty)
     }
+
+    @Test func goingBackToTheTerminalSilencesTheReminder() {
+        var p = SoundPolicy()
+        _ = p.sounds(for: [], now: now)
+        let s = [session("a", .done, since: t)]
+        #expect(p.sounds(for: s, now: now.addingTimeInterval(3)) == [Sounds.finished])
+        p.acknowledge(keys: [s[0].key])
+        #expect(p.sounds(for: s, now: now.addingTimeInterval(184)).isEmpty)
+    }
+}
+
+@Suite("Terminal visits")
+struct TerminalVisitsTests {
+    let terminal = "com.apple.Terminal"
+    let t = 1_800_000_000.0
+
+    func inTab(_ id: String, _ state: SessionState, since: Double, tty: String = "/dev/ttys000") -> Session {
+        Session(id: id, project: id, state: state, since: since, updated: since, tty: tty, bundle: terminal)
+    }
+
+    /// Two passes half a second apart, as the app runs them.
+    func twoPasses(_ v: inout TerminalVisits, _ s: [Session], at now: Double, frontmost: String?,
+                   input: [String: Double]) -> (Set<String>, Set<String>) {
+        let first = v.seen(in: s, now: now, frontmost: frontmost) { input[$0] }
+        return (first, v.seen(in: s, now: now + 0.5, frontmost: frontmost) { input[$0] })
+    }
+
+    @Test func bringingTheTabToTheFrontCountsOnTheSecondPass() {
+        var v = TerminalVisits()
+        let s = [inTab("a", .done, since: t)]
+        let (first, second) = twoPasses(&v, s, at: t + 60, frontmost: terminal, input: ["/dev/ttys000": t + 59.8])
+        #expect(first.isEmpty)
+        #expect(second == [s[0].key])
+    }
+
+    @Test func aTabThatWasAlreadyInFrontWhenItFinishedStaysGreen() {
+        var v = TerminalVisits()
+        let s = [inTab("a", .done, since: t)]
+        #expect(twoPasses(&v, s, at: t + 60, frontmost: terminal, input: ["/dev/ttys000": t - 5]).1.isEmpty)
+    }
+
+    @Test func anotherTabOrAnotherAppDoesNotCount() {
+        var v = TerminalVisits()
+        let s = [inTab("a", .done, since: t), inTab("b", .done, since: t, tty: "/dev/ttys001")]
+        // The focus came to b's tab: only b is seen.
+        let input = ["/dev/ttys000": t - 5, "/dev/ttys001": t + 59.8]
+        #expect(twoPasses(&v, s, at: t + 60, frontmost: terminal, input: input).1 == [s[1].key])
+        // The tab lost the focus to another app (or the screen locked): not seen.
+        var w = TerminalVisits()
+        #expect(twoPasses(&w, s, at: t + 60, frontmost: "com.apple.Safari", input: input).1.isEmpty)
+        #expect(twoPasses(&w, s, at: t + 60, frontmost: nil, input: input).1.isEmpty)
+    }
+
+    @Test func theFocusTakenRightAfterTheInputDoesNotCount() {
+        var v = TerminalVisits()
+        let s = [inTab("a", .done, since: t)]
+        let input = ["/dev/ttys000": t + 59.9]
+        #expect(v.seen(in: s, now: t + 60, frontmost: terminal) { input[$0] }.isEmpty)
+        #expect(v.seen(in: s, now: t + 60.5, frontmost: "com.apple.Safari") { input[$0] }.isEmpty)
+    }
+
+    @Test func oldInputDoesNotCount() {
+        var v = TerminalVisits()
+        let s = [inTab("a", .done, since: t)]
+        // The mouse crossed the window a minute ago; now you are in front of another tab of the same app.
+        #expect(twoPasses(&v, s, at: t + 120, frontmost: terminal, input: ["/dev/ttys000": t + 60]).1.isEmpty)
+    }
+
+    @Test func onlyFinishedSessionsAndKnownTerminals() {
+        var v = TerminalVisits()
+        var noApp = inTab("c", .done, since: t)
+        noApp.bundle = nil
+        let s = [inTab("a", .awaiting, since: t), inTab("b", .running, since: t), noApp]
+        #expect(twoPasses(&v, s, at: t + 60, frontmost: terminal, input: ["/dev/ttys000": t + 59.8]).1.isEmpty)
+    }
+
+    @Test func readsTheAccessTimeOfARealFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("psiu-tty-\(UUID().uuidString)")
+        try Data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var times = [timespec(tv_sec: Int(t), tv_nsec: 500_000_000), timespec(tv_sec: Int(t), tv_nsec: 0)]
+        #expect(utimensat(AT_FDCWD, url.path, &times, 0) == 0)
+        #expect(TerminalVisits.lastInput(url.path) == t + 0.5)
+        #expect(TerminalVisits.lastInput("/dev/no-such-tty") == nil)
+    }
 }
 
 @Suite("Headphones")

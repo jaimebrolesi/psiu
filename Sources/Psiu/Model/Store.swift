@@ -18,7 +18,8 @@ final class Store {
     private(set) var relief: ReliefCue?         // a Psiu you answered, breathing out of yellow or red
     var displayAsleep = false                   // nobody can see the robot: screens asleep, locked or another user
     private(set) var listening = false          // the Mac's sound goes to headphones: Psiu wears the headset
-    /// Episodes already seen (opening the panel): mirrored from the sound policy, as the robot's color depends on it.
+    /// Episodes already seen (opening the panel, or going back to a finished session's terminal): mirrored from the
+    /// sound policy, as the robot's color depends on it.
     private(set) var seen = Set<String>()
 
     @ObservationIgnored private let paths: PsiuPaths
@@ -27,6 +28,7 @@ final class Store {
     @ObservationIgnored private var forecaster = UsageForecaster()
     @ObservationIgnored private var policy = SoundPolicy()
     @ObservationIgnored private var answered = AnsweredWaits()
+    @ObservationIgnored private var visits = TerminalVisits()
     @ObservationIgnored private let headphones = Headphones()
 
     init(paths: PsiuPaths = .current) {
@@ -88,6 +90,9 @@ final class Store {
         if tracker.today != today { today = tracker.today }
         if tracker.weekWaiting != weekWaiting { weekWaiting = tracker.weekWaiting }
 
+        // Going back to a finished session's terminal counts as seeing it, as opening the panel does.
+        let front = displayAsleep ? nil : NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        policy.acknowledge(keys: visits.seen(in: sessions, now: now, frontmost: front, lastInput: TerminalVisits.lastInput))
         for name in policy.sounds(for: sessions, now: Date()) where !muted { NSSound(named: NSSound.Name(name))?.play() }
         if policy.seen != seen { seen = policy.seen }
         if headphones.on != listening { listening = headphones.on }

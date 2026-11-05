@@ -48,6 +48,8 @@ You give Claude Code a long task, switch to the browser or a meeting, and forget
 
 With several sessions open, the robot shows the most urgent one: yellow beats blue, blue beats green.
 
+You have seen a finished session once you open the panel or bring its terminal tab to the front.
+
 The number next to the robot is how much of your 5-hour plan window you have used.
 
 ## One little dot
